@@ -10,6 +10,9 @@ type Topic = Card & { categoryId: string };
 type Input = { title: string; description: string };
 
 const encoder = new TextEncoder();
+const maximumDescriptionLength = 750_000;
+const maximumEmbeddedImages = 2;
+const maximumEmbeddedImageLength = 350_000;
 const defaultCategories: Card[] = [
   { id: "economie", title: "Économie", description: "Comprendre les grandes mécaniques qui façonnent nos choix.", sortOrder: 1 },
   { id: "societe", title: "Société", description: "Idées, institutions et questions qui traversent notre quotidien.", sortOrder: 2 },
@@ -47,7 +50,11 @@ function validateInput(value: unknown): Input {
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const description = typeof body.description === "string" ? body.description.trim() : "";
   if (!title) throw new Error("Un titre est requis.");
-  if (title.length > 120 || description.length > 2000) throw new Error("Le titre ou la description est trop long.");
+  if (title.length > 120 || description.length > maximumDescriptionLength) throw new Error("Le titre ou la description est trop long.");
+  const images = [...description.matchAll(/!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g)];
+  if (images.length > maximumEmbeddedImages || images.some((image) => image[1].length > maximumEmbeddedImageLength)) {
+    throw new Error("Une description peut contenir au plus deux images WebP compressées.");
+  }
   return { title, description };
 }
 

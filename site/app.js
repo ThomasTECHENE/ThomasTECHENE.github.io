@@ -2,6 +2,8 @@
   const apiBase = (window.CARNET_API_BASE || "").replace(/\/$/, "");
   const tokenKey = "carnet-editor-token";
   const themeKey = "policheatsheat-theme";
+  const maximumEmbeddedImages = 2;
+  const maximumCompressedImageBytes = 250 * 1024;
   const categoriesFallback = [
     { id: "economie", title: "Économie", description: "Comprendre les grandes mécaniques qui façonnent nos choix.", sortOrder: 1 },
     { id: "societe", title: "Société", description: "Idées, institutions et questions qui traversent notre quotidien.", sortOrder: 2 },
@@ -24,12 +26,26 @@
   const accessDialog = $("[data-access-dialog]");
   const editorDialog = $("[data-editor-dialog]");
   const detailDialog = $("[data-detail-dialog]");
+  const descriptionEditor = $("[data-description-editor]");
+  const editorFeedback = $("[data-editor-feedback]");
 
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]); }
+  function isEmbeddedImage(value) { return /^data:image\/webp;base64,[A-Za-z0-9+/=]+$/.test(value); }
+  function stripEmbeddedImages(value) { return String(value).replace(/!\[image\]\(data:image\/webp;base64,[A-Za-z0-9+/=]+\)/g, ""); }
+  function renderDescription(value) {
+    const text = String(value); const imagePattern = /!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g;
+    let output = ""; let cursor = 0;
+    for (const image of text.matchAll(imagePattern)) {
+      output += escapeHtml(text.slice(cursor, image.index)).replace(/\n/g, "<br>");
+      output += `<img src="${escapeHtml(image[1])}" alt="Illustration ajoutée" loading="lazy">`;
+      cursor = image.index + image[0].length;
+    }
+    return output + escapeHtml(text.slice(cursor)).replace(/\n/g, "<br>");
+  }
   function normalizeSearch(value) { return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase(); }
   function matchesSearch(card, query) {
     const words = normalizeSearch(query).trim().split(/\s+/).filter(Boolean);
-    const cardText = normalizeSearch(`${card.title} ${card.description}`);
+    const cardText = normalizeSearch(`${card.title} ${stripEmbeddedImages(card.description)}`);
     return words.length === 0 || words.some((word) => cardText.includes(word));
   }
   function showNotice(message) { notice.textContent = message; notice.hidden = !message; }
@@ -43,7 +59,8 @@
   }
   function cardMarkup(card, index, type) {
     const id = escapeHtml(card.id);
-    const description = type === "topic" ? `<p>${escapeHtml(card.description)}</p>` : "";
+    const preview = stripEmbeddedImages(card.description).trim();
+    const description = type === "topic" && preview ? `<p>${escapeHtml(preview)}</p>` : "";
     const removeButton = state.editor ? `<button class="text-button delete-button" type="button" data-action="delete-${type}" data-id="${id}">Supprimer</button>` : "";
     return `<article class="card"><button class="card-main" type="button" data-action="${type === "category" ? "open-category" : "open-topic"}" data-id="${id}"><span class="card-arrow">›</span><h2>${escapeHtml(card.title)}</h2>${description}</button><div class="card-actions">${type === "topic" ? `<button class="text-button" type="button" data-action="open-topic" data-id="${id}">Lire</button>` : ""}<button class="text-button" type="button" data-action="edit-${type}" data-id="${id}">Modifier</button>${removeButton}</div></article>`;
   }
@@ -126,16 +143,79 @@
     if (state.editor) return openEditor(action);
     $("[data-access-form]").reset(); accessDialog.showModal();
   }
+  function setEditorFeedback(message) { editorFeedback.textContent = message; }
+  function descriptionNodeValue(node) {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
+    if (node.nodeType !== Node.ELEMENT_NODE) return "";
+    const element = node;
+    if (element.tagName === "IMG") return isEmbeddedImage(element.getAttribute("src") || "") ? `![image](${element.getAttribute("src")})` : "";
+    if (element.tagName === "BR") return "\n";
+    const value = [...element.childNodes].map(descriptionNodeValue).join("");
+    return ["DIV", "P"].includes(element.tagName) ? `${value}\n` : value;
+  }
+  function descriptionFromEditor() { return [...descriptionEditor.childNodes].map(descriptionNodeValue).join("").replace(/\n{3,}/g, "\n\n").trim(); }
+  function insertEditorNode(node) {
+    const selection = window.getSelection(); const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    if (!range || !descriptionEditor.contains(range.commonAncestorContainer)) descriptionEditor.append(node);
+    else {
+      range.deleteContents(); range.insertNode(node); range.setStartAfter(node); range.collapse(true);
+      selection.removeAllRanges(); selection.addRange(range);
+    }
+    descriptionEditor.focus();
+  }
+  function imageFromFile(file) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file); const image = new Image();
+      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+      image.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Cette image ne peut pas être lue.")); };
+      image.src = url;
+    });
+  }
+  function canvasBlob(canvas, quality) {
+    return new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("La compression a échoué.")), "image/webp", quality));
+  }
+  function dataUrlFromBlob(blob) {
+    return new Promise((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(new Error("La lecture de l’image a échoué.")); reader.readAsDataURL(blob); });
+  }
+  async function compressImage(file) {
+    if (file.size > 10 * 1024 * 1024) throw new Error("L’image d’origine est trop volumineuse (10 Mo maximum).");
+    const image = await imageFromFile(file); let scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale)); canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+      for (const quality of [.82, .68, .55, .42]) {
+        const blob = await canvasBlob(canvas, quality);
+        if (blob.size <= maximumCompressedImageBytes) return dataUrlFromBlob(blob);
+      }
+      scale *= .75;
+    }
+    throw new Error("Impossible de compresser suffisamment cette image. Essayez une image plus petite.");
+  }
+  async function pasteDescription(event) {
+    const clipboard = event.clipboardData; const imageItem = [...(clipboard?.items || [])].find((item) => item.kind === "file" && item.type.startsWith("image/"));
+    event.preventDefault();
+    if (!imageItem) return insertEditorNode(document.createTextNode(clipboard?.getData("text/plain") || ""));
+    if (descriptionEditor.querySelectorAll("img").length >= maximumEmbeddedImages) return setEditorFeedback("Deux images maximum par description.");
+    const file = imageItem.getAsFile(); if (!file) return setEditorFeedback("Cette image ne peut pas être utilisée.");
+    setEditorFeedback("Compression de l’image…");
+    try {
+      const source = await compressImage(file); const image = document.createElement("img");
+      image.src = source; image.alt = "Illustration ajoutée"; insertEditorNode(image);
+      setEditorFeedback("Image ajoutée et compressée.");
+    } catch (error) { setEditorFeedback(error instanceof Error ? error.message : "La compression a échoué."); }
+  }
   function openEditor(action) {
     state.editorForm = action;
     const form = $("[data-editor-form]");
     $("[data-editor-title]").textContent = action.mode === "edit" ? "Modifier la carte" : "Nouvelle carte";
     form.title.value = action.card?.title || "";
-    form.description.value = action.card?.description || "";
+    descriptionEditor.innerHTML = renderDescription(action.card?.description || "");
+    setEditorFeedback("");
     editorDialog.showModal();
   }
   function openTopic(topic) {
-    state.detail = topic; $("[data-detail-title]").textContent = topic.title; $("[data-detail-copy]").textContent = topic.description; detailDialog.showModal();
+    state.detail = topic; $("[data-detail-title]").textContent = topic.title; $("[data-detail-copy]").innerHTML = renderDescription(topic.description); detailDialog.showModal();
   }
   async function unlock(event) {
     event.preventDefault();
@@ -150,7 +230,9 @@
     event.preventDefault();
     const action = state.editorForm; if (!action) return;
     const form = event.currentTarget; const submit = form.querySelector("button[type=submit]"); submit.disabled = true;
-    const payload = { title: form.title.value, description: form.description.value, ...(action.kind === "topic" ? { categoryId: action.categoryId } : {}) };
+    const description = descriptionFromEditor();
+    if (!description) { showNotice("Une description ou une image est requise."); submit.disabled = false; return; }
+    const payload = { title: form.title.value, description, ...(action.kind === "topic" ? { categoryId: action.categoryId } : {}) };
     const base = action.kind === "topic" ? "/topics" : "/categories";
     const url = action.mode === "edit" ? `${base}/${encodeURIComponent(action.card.id)}` : base;
     try {
@@ -214,6 +296,7 @@
   $("[data-search-input]").addEventListener("input", (event) => updateSearch(event.currentTarget.value));
   $("[data-access-form]").addEventListener("submit", unlock);
   $("[data-editor-form]").addEventListener("submit", saveCard);
+  descriptionEditor.addEventListener("paste", pasteDescription);
   setTheme(localStorage.getItem(themeKey) === "dark" ? "dark" : "light", false);
   renderEditorState(); loadCategories();
 })();
