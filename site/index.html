@@ -14,7 +14,12 @@
         <span class="brand-mark" aria-hidden="true">⌑</span>
         <span><strong>PoliCheatSheat</strong></span>
       </button>
-      <span class="editor-badge" hidden data-editor-badge>Mode édition</span>
+      <div class="header-actions">
+        <span class="editor-badge" hidden data-editor-badge>Mode édition</span>
+        <button class="theme-toggle" type="button" data-action="toggle-theme" aria-pressed="false">
+          <span aria-hidden="true">◐</span><span data-theme-label>Mode sombre</span>
+        </button>
+      </div>
     </header>
 
     <main class="page-shell">
@@ -27,7 +32,13 @@
           </div>
           <button class="primary-button desktop-add" type="button" data-action="create-category">＋ Ajouter</button>
         </div>
+        <div class="search-field">
+          <label class="sr-only" for="category-search">Rechercher une catégorie</label>
+          <input id="category-search" type="search" placeholder="Rechercher une catégorie" data-search-input="categories" />
+          <button class="clear-search" type="button" data-action="clear-search" data-search-scope="categories" hidden>Effacer</button>
+        </div>
         <div class="card-grid" data-category-grid aria-live="polite"></div>
+        <p class="empty-state" hidden data-empty-categories>Aucune catégorie ne correspond à votre recherche.</p>
         <button class="primary-button mobile-add" type="button" data-action="create-category">＋ Ajouter une catégorie</button>
       </section>
 
@@ -40,6 +51,11 @@
             <p class="intro" data-topic-description></p>
           </div>
           <button class="primary-button" type="button" data-action="create-topic">＋ Ajouter</button>
+        </div>
+        <div class="search-field">
+          <label class="sr-only" for="topic-search">Rechercher un sujet</label>
+          <input id="topic-search" type="search" placeholder="Rechercher un sujet" data-search-input="topics" />
+          <button class="clear-search" type="button" data-action="clear-search" data-search-scope="topics" hidden>Effacer</button>
         </div>
         <div class="card-grid" data-topic-grid aria-live="polite"></div>
         <p class="empty-state" hidden data-empty-topics>Aucun sujet ici pour le moment. Utilisez <strong>Ajouter</strong> pour en créer un.</p>
