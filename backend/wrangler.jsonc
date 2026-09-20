@@ -1,13 +1,13 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "carnet-des-savoirs-api",
+  "name": "policheatsheat-api",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-20",
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "carnet-des-savoirs",
-      "database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID",
+      "database_id": "6d0a97fd-46ac-4426-b70d-46819b73a0c3",
       "migrations_dir": "migrations"
     }
   ],
