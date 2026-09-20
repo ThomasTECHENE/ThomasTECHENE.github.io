@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Des repères clairs, rangés par catégorie." />
+    <title>Carnet des savoirs</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <button class="brand" type="button" data-action="home" aria-label="Retour aux catégories">
+        <span class="brand-mark" aria-hidden="true">⌑</span>
+        <span><strong>Carnet des savoirs</strong><small>Des idées à garder près de soi</small></span>
+      </button>
+      <span class="editor-badge" hidden data-editor-badge>Mode édition</span>
+    </header>
+
+    <main class="page-shell">
+      <p class="notice" hidden data-notice></p>
+      <section data-categories-view>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">Explorer</p>
+            <h1>Catégories</h1>
+            <p class="intro">Choisissez un univers, puis avancez de carte en carte.</p>
+          </div>
+          <button class="primary-button desktop-add" type="button" data-action="create-category">＋ Ajouter</button>
+        </div>
+        <div class="card-grid" data-category-grid aria-live="polite"></div>
+        <button class="primary-button mobile-add" type="button" data-action="create-category">＋ Ajouter une catégorie</button>
+      </section>
+
+      <section hidden data-topics-view>
+        <div class="page-heading topic-heading">
+          <div>
+            <button class="back-link" type="button" data-action="home">← Toutes les catégories</button>
+            <p class="eyebrow">Catégorie</p>
+            <h1 data-topic-title></h1>
+            <p class="intro" data-topic-description></p>
+          </div>
+          <button class="primary-button" type="button" data-action="create-topic">＋ Ajouter</button>
+        </div>
+        <div class="card-grid" data-topic-grid aria-live="polite"></div>
+        <p class="empty-state" hidden data-empty-topics>Aucun sujet ici pour le moment. Utilisez <strong>Ajouter</strong> pour en créer un.</p>
+      </section>
+    </main>
+
+    <dialog class="modal" data-access-dialog aria-labelledby="access-title">
+      <form method="dialog" data-access-form>
+        <button class="modal-close" type="button" data-close aria-label="Fermer">×</button>
+        <span class="lock" aria-hidden="true">⌁</span>
+        <h2 id="access-title">Accès édition</h2>
+        <p>Saisissez le code pour ajouter ou modifier une carte. Il restera valide pendant cette session.</p>
+        <label for="access-code">Code d’accès</label>
+        <input id="access-code" name="access-code" type="password" autocomplete="current-password" required />
+        <button class="primary-button" type="submit">Continuer</button>
+      </form>
+    </dialog>
+
+    <dialog class="modal" data-editor-dialog aria-labelledby="editor-title">
+      <form method="dialog" data-editor-form>
+        <button class="modal-close" type="button" data-close aria-label="Fermer">×</button>
+        <h2 id="editor-title" data-editor-title>Nouvelle carte</h2>
+        <p>Un titre clair et quelques lignes suffisent.</p>
+        <label for="card-title">Titre</label>
+        <input id="card-title" name="title" maxlength="120" required />
+        <label for="card-description">Description</label>
+        <textarea id="card-description" name="description" maxlength="2000" rows="7" required></textarea>
+        <div class="dialog-actions"><button class="secondary-button" type="button" data-close>Annuler</button><button class="primary-button" type="submit">Enregistrer</button></div>
+      </form>
+    </dialog>
+
+    <dialog class="modal" data-detail-dialog aria-labelledby="detail-title">
+      <form method="dialog">
+        <button class="modal-close" type="button" data-close aria-label="Fermer">×</button>
+        <h2 id="detail-title" data-detail-title></h2>
+        <p class="detail-copy" data-detail-copy></p>
+        <div class="dialog-actions"><button class="secondary-button" type="button" data-close>Fermer</button><button class="primary-button" type="button" data-action="edit-detail">Modifier</button></div>
+      </form>
+    </dialog>
+
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
