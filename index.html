@@ -24,6 +24,19 @@
 
     <main class="page-shell">
       <p class="notice" hidden data-notice></p>
+      <div class="search-field">
+        <label class="sr-only" for="topic-search">Rechercher parmi tous les sujets</label>
+        <input id="topic-search" type="search" placeholder="Rechercher parmi tous les sujets" data-search-input />
+        <button class="clear-search" type="button" data-action="clear-search" hidden>Effacer</button>
+      </div>
+      <section hidden data-search-results-view>
+        <div class="search-results-heading">
+          <p class="eyebrow">Recherche</p>
+          <h1>Résultats</h1>
+        </div>
+        <div class="card-grid" data-search-results-grid aria-live="polite"></div>
+        <p class="empty-state" hidden data-empty-search-results>Aucun sujet ne correspond à votre recherche.</p>
+      </section>
       <section data-categories-view>
         <div class="page-heading">
           <div>
@@ -31,11 +44,6 @@
             <h1>Catégories</h1>
           </div>
           <button class="primary-button desktop-add" type="button" data-action="create-category">＋ Ajouter</button>
-        </div>
-        <div class="search-field">
-          <label class="sr-only" for="category-search">Rechercher une catégorie</label>
-          <input id="category-search" type="search" placeholder="Rechercher une catégorie" data-search-input="categories" />
-          <button class="clear-search" type="button" data-action="clear-search" data-search-scope="categories" hidden>Effacer</button>
         </div>
         <div class="card-grid" data-category-grid aria-live="polite"></div>
         <p class="empty-state" hidden data-empty-categories>Aucune catégorie ne correspond à votre recherche.</p>
@@ -51,11 +59,6 @@
             <p class="intro" data-topic-description></p>
           </div>
           <button class="primary-button" type="button" data-action="create-topic">＋ Ajouter</button>
-        </div>
-        <div class="search-field">
-          <label class="sr-only" for="topic-search">Rechercher un sujet</label>
-          <input id="topic-search" type="search" placeholder="Rechercher un sujet" data-search-input="topics" />
-          <button class="clear-search" type="button" data-action="clear-search" data-search-scope="topics" hidden>Effacer</button>
         </div>
         <div class="card-grid" data-topic-grid aria-live="polite"></div>
         <p class="empty-state" hidden data-empty-topics>Aucun sujet ici pour le moment. Utilisez <strong>Ajouter</strong> pour en créer un.</p>

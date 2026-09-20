@@ -134,6 +134,17 @@ async function listTopics(env: Env, categoryId: string) {
   return merge(defaultTopics.filter((item) => item.categoryId === categoryId), result.results.map(topic), await deletedIds(env, "topic"));
 }
 
+async function listAllTopics(env: Env) {
+  const [result, deletedTopics, deletedCategories] = await Promise.all([
+    env.DB.prepare("SELECT id, category_id, title, description, sort_order FROM topics ORDER BY sort_order ASC").all<Record<string, unknown>>(),
+    deletedIds(env, "topic"),
+    deletedIds(env, "category"),
+  ]);
+  const stored = result.results.map(topic).filter((item) => !deletedCategories.has(item.categoryId));
+  const defaults = defaultTopics.filter((item) => !deletedCategories.has(item.categoryId));
+  return merge(defaults, stored, deletedTopics);
+}
+
 async function writeTopic(env: Env, categoryId: string, input: Input, id: string = crypto.randomUUID()) {
   await ensureCategory(env, categoryId);
   const timestamp = new Date().toISOString();
@@ -166,8 +177,7 @@ async function content(request: Request, env: Env, path: string) {
   if (request.method === "GET" && path === "/categories") return json(request, env, { categories: await listCategories(env) });
   if (request.method === "GET" && path === "/topics") {
     const categoryId = new URL(request.url).searchParams.get("categoryId");
-    if (!categoryId) return failure(request, env, "Catégorie requise.");
-    return json(request, env, { topics: await listTopics(env, categoryId) });
+    return json(request, env, { topics: categoryId ? await listTopics(env, categoryId) : await listAllTopics(env) });
   }
   if (!(await isEditor(request, env))) return failure(request, env, "Accès éditeur requis.", 403);
   if (request.method === "DELETE" && path.startsWith("/categories/")) {

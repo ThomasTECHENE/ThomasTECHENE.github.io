@@ -12,12 +12,14 @@
     { id: "offre-demande", categoryId: "economie", title: "L’offre et la demande", description: "Le principe qui aide à lire les prix, les pénuries et les comportements de marché.", sortOrder: 2 },
     { id: "budget-public", categoryId: "economie", title: "Le budget public", description: "Comment l’État collecte, répartit et utilise l’argent public.", sortOrder: 3 },
   ];
-  const state = { categories: categoriesFallback, topics: [], selected: null, editor: Boolean(sessionStorage.getItem(tokenKey)), pending: null, editorForm: null, detail: null, search: { categories: "", topics: "" } };
+  const state = { categories: categoriesFallback, topics: [], selected: null, editor: Boolean(sessionStorage.getItem(tokenKey)), pending: null, editorForm: null, detail: null, search: { query: "", topics: [], loading: false } };
   const $ = (selector) => document.querySelector(selector);
   const categoryGrid = $("[data-category-grid]");
   const topicGrid = $("[data-topic-grid]");
+  const searchResultsGrid = $("[data-search-results-grid]");
   const categoriesView = $("[data-categories-view]");
   const topicsView = $("[data-topics-view]");
+  const searchResultsView = $("[data-search-results-view]");
   const notice = $("[data-notice]");
   const accessDialog = $("[data-access-dialog]");
   const editorDialog = $("[data-editor-dialog]");
@@ -45,45 +47,79 @@
     const removeButton = state.editor ? `<button class="text-button delete-button" type="button" data-action="delete-${type}" data-id="${id}">Supprimer</button>` : "";
     return `<article class="card"><button class="card-main" type="button" data-action="${type === "category" ? "open-category" : "open-topic"}" data-id="${id}"><span class="card-arrow">›</span><h2>${escapeHtml(card.title)}</h2>${description}</button><div class="card-actions">${type === "topic" ? `<button class="text-button" type="button" data-action="open-topic" data-id="${id}">Lire</button>` : ""}<button class="text-button" type="button" data-action="edit-${type}" data-id="${id}">Modifier</button>${removeButton}</div></article>`;
   }
-  function syncSearchControl(scope) {
-    const input = $(`[data-search-input="${scope}"]`);
-    const clearButton = $(`[data-search-scope="${scope}"]`);
-    if (input && input.value !== state.search[scope]) input.value = state.search[scope];
-    if (clearButton) clearButton.hidden = !state.search[scope];
+  function syncSearchControl() {
+    const input = $("[data-search-input]");
+    const clearButton = $("[data-action=clear-search]");
+    if (input && input.value !== state.search.query) input.value = state.search.query;
+    if (clearButton) clearButton.hidden = !state.search.query;
   }
   function renderCategories() {
-    const categories = state.categories.filter((card) => matchesSearch(card, state.search.categories));
-    categoryGrid.innerHTML = categories.map((card, index) => cardMarkup(card, index, "category")).join("");
-    $("[data-empty-categories]").hidden = categories.length > 0;
-    syncSearchControl("categories");
+    categoryGrid.innerHTML = state.categories.map((card, index) => cardMarkup(card, index, "category")).join("");
+    $("[data-empty-categories]").hidden = true;
   }
   function renderTopics() {
-    const topics = state.topics.filter((card) => matchesSearch(card, state.search.topics));
-    topicGrid.innerHTML = topics.map((card, index) => cardMarkup(card, index, "topic")).join("");
+    topicGrid.innerHTML = state.topics.map((card, index) => cardMarkup(card, index, "topic")).join("");
     const emptyState = $("[data-empty-topics]");
-    emptyState.hidden = topics.length > 0;
-    emptyState.innerHTML = state.search.topics ? "Aucun sujet ne correspond à votre recherche." : "Aucun sujet ici pour le moment. Utilisez <strong>Ajouter</strong> pour en créer un.";
-    syncSearchControl("topics");
+    emptyState.hidden = state.topics.length > 0;
+    emptyState.innerHTML = "Aucun sujet ici pour le moment. Utilisez <strong>Ajouter</strong> pour en créer un.";
+  }
+  function renderSearchResults() {
+    const topics = state.search.topics.filter((card) => matchesSearch(card, state.search.query));
+    searchResultsGrid.innerHTML = topics.map((card, index) => cardMarkup(card, index, "topic")).join("");
+    const emptyState = $("[data-empty-search-results]");
+    emptyState.hidden = state.search.loading || topics.length > 0;
+  }
+  function renderCurrentView() {
+    const isSearching = Boolean(state.search.query.trim());
+    searchResultsView.hidden = !isSearching;
+    categoriesView.hidden = isSearching || Boolean(state.selected);
+    topicsView.hidden = isSearching || !state.selected;
+    syncSearchControl();
+    if (isSearching) return renderSearchResults();
+    if (state.selected) return renderTopics();
+    renderCategories();
   }
   function renderEditorState() {
     $("[data-editor-badge]").hidden = !state.editor;
-    renderCategories();
-    if (state.selected) renderTopics();
+    renderCurrentView();
   }
-  function findCard(type, id) { return (type === "category" ? state.categories : state.topics).find((card) => card.id === id); }
-  function setHome() { state.selected = null; state.topics = []; categoriesView.hidden = false; topicsView.hidden = true; showNotice(""); }
+  function findCard(type, id) {
+    const cards = type === "category" ? state.categories : [...state.topics, ...state.search.topics];
+    return cards.find((card) => card.id === id);
+  }
+  function setHome() { state.selected = null; state.topics = []; showNotice(""); renderCurrentView(); }
   async function loadCategories() {
     try { state.categories = (await request("/categories")).categories; showNotice(""); }
     catch (error) { state.categories = categoriesFallback; if (apiBase) showNotice(error.message); }
-    renderCategories();
+    renderCurrentView();
   }
   async function openCategory(category) {
-    state.selected = category; state.search.topics = ""; categoriesView.hidden = true; topicsView.hidden = false;
+    state.selected = category;
     $("[data-topic-title]").textContent = category.title;
     $("[data-topic-description]").textContent = category.description;
     try { state.topics = (await request(`/topics?categoryId=${encodeURIComponent(category.id)}`)).topics; showNotice(""); }
     catch (error) { state.topics = topicsFallback.filter((topic) => topic.categoryId === category.id); if (apiBase) showNotice(error.message); }
-    renderTopics();
+    renderCurrentView();
+  }
+  async function updateSearch(query) {
+    state.search.query = query;
+    if (!query.trim()) { state.search.loading = false; return renderCurrentView(); }
+    const requestQuery = query;
+    state.search.loading = true;
+    renderCurrentView();
+    try {
+      const data = await request("/topics");
+      if (state.search.query !== requestQuery) return;
+      state.search.topics = data.topics;
+      state.search.loading = false;
+      showNotice("");
+    } catch (error) {
+      if (state.search.query !== requestQuery) return;
+      state.search.topics = topicsFallback;
+      state.search.loading = false;
+      if (apiBase) showNotice(error.message);
+    }
+    renderCurrentView();
   }
   function requireEditor(action) {
     showNotice(""); state.pending = action;
@@ -121,7 +157,8 @@
       await request(url, { method: action.mode === "edit" ? "PUT" : "POST", body: JSON.stringify(payload) });
       editorDialog.close();
       if (action.kind === "category") { await loadCategories(); if (state.selected) await openCategory(state.categories.find((item) => item.id === state.selected.id) || state.selected); }
-      else await openCategory(state.selected);
+      else if (state.search.query.trim()) await updateSearch(state.search.query);
+      else if (state.selected) await openCategory(state.selected);
     } catch (error) {
       if (/Accès éditeur requis/.test(error.message)) { sessionStorage.removeItem(tokenKey); state.editor = false; renderEditorState(); editorDialog.close(); requireEditor(action); }
       else showNotice(error.message);
@@ -136,7 +173,8 @@
       if (kind === "category") {
         if (state.selected?.id === id) setHome();
         await loadCategories();
-      } else await openCategory(state.selected);
+      } else if (state.search.query.trim()) await updateSearch(state.search.query);
+      else if (state.selected) await openCategory(state.selected);
     } catch (error) {
       if (/Accès éditeur requis/.test(error.message)) {
         sessionStorage.removeItem(tokenKey); state.editor = false; renderEditorState();
@@ -157,30 +195,23 @@
     const target = event.target;
     const element = target instanceof Element ? target : target?.parentElement;
     const button = element?.closest("[data-action]"); if (!button) return;
-    const { action, id, searchScope } = button.dataset;
+    const { action, id } = button.dataset;
     if (action === "toggle-theme") return toggleTheme();
-    if (action === "clear-search") {
-      state.search[searchScope] = "";
-      return searchScope === "categories" ? renderCategories() : renderTopics();
-    }
+    if (action === "clear-search") return updateSearch("");
     if (action === "home") return setHome();
     if (action === "create-category") return requireEditor({ kind: "category", mode: "create" });
     if (action === "create-topic") return requireEditor({ kind: "topic", mode: "create", categoryId: state.selected.id });
     if (action === "open-category") return openCategory(findCard("category", id));
     if (action === "open-topic") return openTopic(findCard("topic", id));
     if (action === "edit-category") return requireEditor({ kind: "category", mode: "edit", card: findCard("category", id) });
-    if (action === "edit-topic") { detailDialog.close(); return requireEditor({ kind: "topic", mode: "edit", card: findCard("topic", id), categoryId: state.selected.id }); }
+    if (action === "edit-topic") { const topic = findCard("topic", id); detailDialog.close(); return requireEditor({ kind: "topic", mode: "edit", card: topic, categoryId: topic.categoryId }); }
     if (action === "delete-category") return deleteCard("category", id);
     if (action === "delete-topic") return deleteCard("topic", id);
-    if (action === "edit-detail") { detailDialog.close(); return requireEditor({ kind: "topic", mode: "edit", card: state.detail, categoryId: state.selected.id }); }
+    if (action === "edit-detail") { detailDialog.close(); return requireEditor({ kind: "topic", mode: "edit", card: state.detail, categoryId: state.detail.categoryId }); }
   }
   document.addEventListener("click", actionFromElement);
   document.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
-  document.querySelectorAll("[data-search-input]").forEach((input) => input.addEventListener("input", () => {
-    const scope = input.dataset.searchInput;
-    state.search[scope] = input.value;
-    if (scope === "categories") renderCategories(); else renderTopics();
-  }));
+  $("[data-search-input]").addEventListener("input", (event) => updateSearch(event.currentTarget.value));
   $("[data-access-form]").addEventListener("submit", unlock);
   $("[data-editor-form]").addEventListener("submit", saveCard);
   setTheme(localStorage.getItem(themeKey) === "dark" ? "dark" : "light", false);

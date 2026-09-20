@@ -15,6 +15,8 @@ button { cursor:pointer; }
 .page-shell { max-width:72rem; margin:0 auto; padding:3.5rem 1.25rem; }
 .page-heading { display:flex; align-items:end; justify-content:space-between; gap:1.25rem; margin-bottom:1.25rem; }
 .page-heading h1 { margin:0; color:var(--heading); font-size:clamp(2.35rem, 6vw, 3.25rem); letter-spacing:-.055em; line-height:1; }
+.search-results-heading { margin:0 0:1.25rem; }
+.search-results-heading h1 { margin:0; color:var(--heading); font-size:clamp(2.1rem, 5vw, 2.8rem); letter-spacing:-.05em; line-height:1; }
 .eyebrow { margin:0 0:.5rem; color:var(--accent); font-size:.8125rem; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
 .intro { max-width:34rem; margin:.9rem 0 0; color:var(--muted); font-size:1rem; line-height:1.65; }
 .search-field { position:relative; max-width:34rem; margin:0 0 1.5rem; }
