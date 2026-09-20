@@ -34,14 +34,20 @@
   }
   function cardMarkup(card, index, type) {
     const id = escapeHtml(card.id);
-    return `<article class="card"><button class="card-main" type="button" data-action="${type === "category" ? "open-category" : "open-topic"}" data-id="${id}"><span class="card-number">${String(index + 1).padStart(2, "0")}</span><span class="card-arrow">›</span><h2>${escapeHtml(card.title)}</h2><p>${escapeHtml(card.description)}</p></button><div class="card-actions">${type === "topic" ? `<button class="text-button" type="button" data-action="open-topic" data-id="${id}">Lire</button>` : ""}<button class="text-button" type="button" data-action="edit-${type}" data-id="${id}">Modifier</button></div></article>`;
+    const description = type === "topic" ? `<p>${escapeHtml(card.description)}</p>` : "";
+    const removeButton = state.editor ? `<button class="text-button delete-button" type="button" data-action="delete-${type}" data-id="${id}">Supprimer</button>` : "";
+    return `<article class="card"><button class="card-main" type="button" data-action="${type === "category" ? "open-category" : "open-topic"}" data-id="${id}"><span class="card-arrow">›</span><h2>${escapeHtml(card.title)}</h2>${description}</button><div class="card-actions">${type === "topic" ? `<button class="text-button" type="button" data-action="open-topic" data-id="${id}">Lire</button>` : ""}<button class="text-button" type="button" data-action="edit-${type}" data-id="${id}">Modifier</button>${removeButton}</div></article>`;
   }
   function renderCategories() { categoryGrid.innerHTML = state.categories.map((card, index) => cardMarkup(card, index, "category")).join(""); }
   function renderTopics() {
     topicGrid.innerHTML = state.topics.map((card, index) => cardMarkup(card, index, "topic")).join("");
     $("[data-empty-topics]").hidden = state.topics.length > 0;
   }
-  function renderEditorState() { $("[data-editor-badge]").hidden = !state.editor; }
+  function renderEditorState() {
+    $("[data-editor-badge]").hidden = !state.editor;
+    renderCategories();
+    if (state.selected) renderTopics();
+  }
   function findCard(type, id) { return (type === "category" ? state.categories : state.topics).find((card) => card.id === id); }
   function setHome() { state.selected = null; state.topics = []; categoriesView.hidden = false; topicsView.hidden = true; showNotice(""); }
   async function loadCategories() {
@@ -99,6 +105,23 @@
       else showNotice(error.message);
     } finally { submit.disabled = false; }
   }
+  async function deleteCard(kind, id) {
+    const subject = kind === "category" ? "cette catégorie et tous ses sujets" : "ce sujet";
+    if (!window.confirm(`Supprimer ${subject} ? Cette action est définitive.`)) return;
+    const base = kind === "category" ? "/categories" : "/topics";
+    try {
+      await request(`${base}/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (kind === "category") {
+        if (state.selected?.id === id) setHome();
+        await loadCategories();
+      } else await openCategory(state.selected);
+    } catch (error) {
+      if (/Accès éditeur requis/.test(error.message)) {
+        sessionStorage.removeItem(tokenKey); state.editor = false; renderEditorState();
+        showNotice("Votre session a expiré. Cliquez sur Modifier pour vous reconnecter.");
+      } else showNotice(error.message);
+    }
+  }
   function actionFromElement(event) {
     const target = event.target;
     const element = target instanceof Element ? target : target?.parentElement;
@@ -111,11 +134,13 @@
     if (action === "open-topic") return openTopic(findCard("topic", id));
     if (action === "edit-category") return requireEditor({ kind: "category", mode: "edit", card: findCard("category", id) });
     if (action === "edit-topic") { detailDialog.close(); return requireEditor({ kind: "topic", mode: "edit", card: findCard("topic", id), categoryId: state.selected.id }); }
+    if (action === "delete-category") return deleteCard("category", id);
+    if (action === "delete-topic") return deleteCard("topic", id);
     if (action === "edit-detail") { detailDialog.close(); return requireEditor({ kind: "topic", mode: "edit", card: state.detail, categoryId: state.selected.id }); }
   }
   document.addEventListener("click", actionFromElement);
   document.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
   $("[data-access-form]").addEventListener("submit", unlock);
   $("[data-editor-form]").addEventListener("submit", saveCard);
-  renderEditorState(); renderCategories(); loadCategories();
+  renderEditorState(); loadCategories();
 })();

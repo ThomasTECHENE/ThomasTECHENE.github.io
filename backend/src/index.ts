@@ -27,7 +27,7 @@ function cors(request: Request, env: Env): Record<string, string> {
   if (origin !== allowed) return { "Vary": "Origin" };
   return {
     "Access-Control-Allow-Origin": allowed,
-    "Access-Control-Allow-Methods": "GET, POST, PUT, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
     "Vary": "Origin",
   };
@@ -57,8 +57,8 @@ function card(row: Record<string, unknown>): Card {
 
 function topic(row: Record<string, unknown>): Topic { return { ...card(row), categoryId: String(row.category_id) }; }
 
-function merge<T extends { id: string; sortOrder: number }>(defaults: T[], stored: T[]) {
-  const values = new Map(defaults.map((item) => [item.id, item]));
+function merge<T extends { id: string; sortOrder: number }>(defaults: T[], stored: T[], deleted = new Set<string>()) {
+  const values = new Map(defaults.filter((item) => !deleted.has(item.id)).map((item) => [item.id, item]));
   stored.forEach((item) => values.set(item.id, item));
   return [...values.values()].sort((a, b) => a.sortOrder - b.sortOrder);
 }
@@ -94,7 +94,18 @@ async function storedCategory(env: Env, id: string) {
   return row ? card(row) : null;
 }
 
+async function isDeleted(env: Env, type: "category" | "topic", id: string) {
+  const row = await env.DB.prepare("SELECT id FROM deleted_cards WHERE card_type = ? AND id = ?").bind(type, id).first();
+  return Boolean(row);
+}
+
+async function deletedIds(env: Env, type: "category" | "topic") {
+  const result = await env.DB.prepare("SELECT id FROM deleted_cards WHERE card_type = ?").bind(type).all<{ id: string }>();
+  return new Set(result.results.map((row) => row.id));
+}
+
 async function ensureCategory(env: Env, id: string) {
+  if (await isDeleted(env, "category", id)) throw new Error("Cette catégorie est introuvable.");
   const existing = await storedCategory(env, id);
   if (existing) return existing;
   const fallback = defaultCategories.find((item) => item.id === id);
@@ -114,12 +125,13 @@ async function writeCategory(env: Env, input: Input & { sortOrder?: number }, id
 
 async function listCategories(env: Env) {
   const result = await env.DB.prepare("SELECT id, title, description, sort_order FROM categories ORDER BY sort_order ASC").all<Record<string, unknown>>();
-  return merge(defaultCategories, result.results.map(card));
+  return merge(defaultCategories, result.results.map(card), await deletedIds(env, "category"));
 }
 
 async function listTopics(env: Env, categoryId: string) {
+  if (await isDeleted(env, "category", categoryId)) return [];
   const result = await env.DB.prepare("SELECT id, category_id, title, description, sort_order FROM topics WHERE category_id = ? ORDER BY sort_order ASC").bind(categoryId).all<Record<string, unknown>>();
-  return merge(defaultTopics.filter((item) => item.categoryId === categoryId), result.results.map(topic));
+  return merge(defaultTopics.filter((item) => item.categoryId === categoryId), result.results.map(topic), await deletedIds(env, "topic"));
 }
 
 async function writeTopic(env: Env, categoryId: string, input: Input, id: string = crypto.randomUUID()) {
@@ -133,6 +145,23 @@ async function writeTopic(env: Env, categoryId: string, input: Input, id: string
   return topic(row);
 }
 
+async function deleteCategory(env: Env, id: string) {
+  if (!id) throw new Error("Catégorie requise.");
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO deleted_cards (card_type, id, deleted_at) VALUES ('category', ?, ?) ON CONFLICT(card_type, id) DO UPDATE SET deleted_at = excluded.deleted_at").bind(id, new Date().toISOString()),
+    env.DB.prepare("DELETE FROM topics WHERE category_id = ?").bind(id),
+    env.DB.prepare("DELETE FROM categories WHERE id = ?").bind(id),
+  ]);
+}
+
+async function deleteTopic(env: Env, id: string) {
+  if (!id) throw new Error("Sujet requis.");
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO deleted_cards (card_type, id, deleted_at) VALUES ('topic', ?, ?) ON CONFLICT(card_type, id) DO UPDATE SET deleted_at = excluded.deleted_at").bind(id, new Date().toISOString()),
+    env.DB.prepare("DELETE FROM topics WHERE id = ?").bind(id),
+  ]);
+}
+
 async function content(request: Request, env: Env, path: string) {
   if (request.method === "GET" && path === "/categories") return json(request, env, { categories: await listCategories(env) });
   if (request.method === "GET" && path === "/topics") {
@@ -141,6 +170,15 @@ async function content(request: Request, env: Env, path: string) {
     return json(request, env, { topics: await listTopics(env, categoryId) });
   }
   if (!(await isEditor(request, env))) return failure(request, env, "Accès éditeur requis.", 403);
+  if (request.method === "DELETE" && path.startsWith("/categories/")) {
+    await deleteCategory(env, decodeURIComponent(path.slice(12)));
+    return json(request, env, { ok: true });
+  }
+  if (request.method === "DELETE" && path.startsWith("/topics/")) {
+    await deleteTopic(env, decodeURIComponent(path.slice(8)));
+    return json(request, env, { ok: true });
+  }
+  if (request.method !== "POST" && request.method !== "PUT") return failure(request, env, "Route introuvable.", 404);
   const body = await request.json();
   const input = validateInput(body);
   if (request.method === "POST" && path === "/categories") return json(request, env, { category: await writeCategory(env, input) }, 201);
