@@ -1,9 +1,11 @@
 (() => {
   const apiBase = (window.CARNET_API_BASE || "").replace(/\/$/, "");
   const tokenKey = "carnet-editor-token";
+  const deviceIdKey = "carnet-editor-device-id";
   const themeKey = "policheatsheat-theme";
   const maximumEmbeddedImages = 2;
   const maximumCompressedImageBytes = 250 * 1024;
+  const deviceUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const state = { categories: [], topics: [], loading: { categories: true, topics: false }, selected: null, editor: Boolean(sessionStorage.getItem(tokenKey)), pending: null, editorForm: null, detail: null, search: { query: "", topics: [], loading: false } };
   const $ = (selector) => document.querySelector(selector);
   const categoryGrid = $("[data-category-grid]");
@@ -88,6 +90,30 @@
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.error || "La demande a échoué.");
     return body;
+  }
+  function storedDeviceId() {
+    const value = localStorage.getItem(deviceIdKey);
+    return value && deviceUuidPattern.test(value) ? value.toLowerCase() : null;
+  }
+  async function restoreRememberedSession() {
+    const deviceId = storedDeviceId();
+    if (!deviceId) return false;
+    try {
+      const data = await request("/session/remembered", { method: "POST", body: JSON.stringify({ deviceId }) });
+      sessionStorage.setItem(tokenKey, data.token); state.editor = true; renderEditorState();
+      return true;
+    } catch (error) {
+      if (/Accès mémorisé expiré/.test(error instanceof Error ? error.message : "")) localStorage.removeItem(deviceIdKey);
+      return false;
+    }
+  }
+  async function rememberCurrentSession() {
+    if (!state.editor || storedDeviceId()) return;
+    const deviceId = crypto.randomUUID();
+    try {
+      await request("/devices", { method: "POST", body: JSON.stringify({ deviceId }) });
+      localStorage.setItem(deviceIdKey, deviceId);
+    } catch { /* A code entry will try again when the current session ends. */ }
   }
   function cardMarkup(card, index, type) {
     const id = escapeHtml(card.id);
@@ -269,8 +295,9 @@
     event.preventDefault();
     const form = event.currentTarget; const submit = form.querySelector("button[type=submit]"); submit.disabled = true;
     try {
-      const data = await request("/session", { method: "POST", body: JSON.stringify({ code: form.elements["access-code"].value }) });
-      sessionStorage.setItem(tokenKey, data.token); state.editor = true; renderEditorState(); accessDialog.close(); openEditor(state.pending);
+      const deviceId = storedDeviceId() || crypto.randomUUID();
+      const data = await request("/session", { method: "POST", body: JSON.stringify({ code: form.elements["access-code"].value, deviceId }) });
+      sessionStorage.setItem(tokenKey, data.token); localStorage.setItem(deviceIdKey, deviceId); state.editor = true; renderEditorState(); accessDialog.close(); openEditor(state.pending);
     } catch (error) { showNotice(error.message); }
     finally { submit.disabled = false; }
   }
@@ -290,7 +317,11 @@
       else if (state.search.query.trim()) await updateSearch(state.search.query);
       else if (state.selected) await openCategory(state.selected);
     } catch (error) {
-      if (/Accès éditeur requis/.test(error.message)) { sessionStorage.removeItem(tokenKey); state.editor = false; renderEditorState(); editorDialog.close(); requireEditor(action); }
+      if (/Accès éditeur requis/.test(error.message)) {
+        sessionStorage.removeItem(tokenKey); state.editor = false;
+        if (await restoreRememberedSession()) { editorDialog.close(); openEditor(action); }
+        else { renderEditorState(); editorDialog.close(); requireEditor(action); }
+      }
       else showNotice(error.message);
     } finally { submit.disabled = false; }
   }
@@ -308,7 +339,8 @@
     } catch (error) {
       if (/Accès éditeur requis/.test(error.message)) {
         sessionStorage.removeItem(tokenKey); state.editor = false; renderEditorState();
-        showNotice("Votre session a expiré. Cliquez sur Modifier pour vous reconnecter.");
+        if (await restoreRememberedSession()) showNotice("");
+        else showNotice("Votre accès mémorisé a expiré. Cliquez sur Modifier pour vous reconnecter.");
       } else showNotice(error.message);
     }
   }
@@ -347,4 +379,6 @@
   descriptionEditor.addEventListener("paste", pasteDescription);
   setTheme(localStorage.getItem(themeKey) === "dark" ? "dark" : "light", false);
   renderEditorState(); loadCategories();
+  if (state.editor) rememberCurrentSession();
+  else restoreRememberedSession();
 })();
