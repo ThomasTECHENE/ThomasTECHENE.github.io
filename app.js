@@ -32,20 +32,62 @@
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]); }
   function isEmbeddedImage(value) { return /^data:image\/webp;base64,[A-Za-z0-9+/=]+$/.test(value); }
   function stripEmbeddedImages(value) { return String(value).replace(/!\[image\]\(data:image\/webp;base64,[A-Za-z0-9+/=]+\)/g, ""); }
-  function renderDescription(value) {
+  function embeddedImageMarkup(source) { return `<img src="${escapeHtml(source)}" alt="Illustration ajoutée" loading="lazy">`; }
+  function renderInlineMarkdown(value) {
+    const tokens = [];
+    const protect = (html) => `\u0000${tokens.push(html) - 1}\u0000`;
+    let output = escapeHtml(value);
+    output = output.replace(/!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g, (_, source) => protect(embeddedImageMarkup(source)));
+    output = output.replace(/`([^`\n]+)`/g, (_, code) => protect(`<code>${code}</code>`));
+    output = output.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s<>()]+)\)/g, (_, label, url) => protect(`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`));
+    output = output.replace(/~~(?=\S)([\s\S]*?\S)~~/g, "<del>$1</del>");
+    output = output.replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "<strong>$2</strong>");
+    output = output.replace(/\*([^*\n]+)\*|_([^_\n]+)_/g, (_, italic, underscore) => `<em>${italic || underscore}</em>`);
+    return output.replace(/\u0000(\d+)\u0000/g, (_, index) => tokens[Number(index)] || "");
+  }
+  function renderMarkdown(value) {
+    const lines = String(value).replace(/\r\n?/g, "\n").split("\n");
+    const blocks = []; let paragraph = []; let listType = ""; let listItems = []; let quote = [];
+    const flushParagraph = () => { if (paragraph.length) blocks.push(`<p>${renderInlineMarkdown(paragraph.join("\n")).replace(/\n/g, "<br>")}</p>`); paragraph = []; };
+    const flushList = () => { if (listItems.length) blocks.push(`<${listType}>${listItems.map((item) => `<li>${renderInlineMarkdown(item)}</li>`).join("")}</${listType}>`); listType = ""; listItems = []; };
+    const flushQuote = () => { if (quote.length) blocks.push(`<blockquote>${renderInlineMarkdown(quote.join("\n")).replace(/\n/g, "<br>")}</blockquote>`); quote = []; };
+    const flushBlocks = () => { flushParagraph(); flushList(); flushQuote(); };
+    for (const line of lines) {
+      if (!line.trim()) { flushBlocks(); continue; }
+      const heading = line.match(/^(#{1,3})\s+(.+?)\s*#*$/);
+      if (heading) { flushBlocks(); const level = heading[1].length; blocks.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`); continue; }
+      if (/^(?:-{3,}|\*{3,}|_{3,})\s*$/.test(line)) { flushBlocks(); blocks.push("<hr>"); continue; }
+      const quoteLine = line.match(/^>\s?(.*)$/);
+      if (quoteLine) { flushParagraph(); flushList(); quote.push(quoteLine[1]); continue; }
+      flushQuote();
+      const unordered = line.match(/^[-+*]\s+(.+)$/); const ordered = line.match(/^\d+[.)]\s+(.+)$/);
+      if (unordered || ordered) {
+        flushParagraph(); const nextType = unordered ? "ul" : "ol";
+        if (listType && listType !== nextType) flushList();
+        listType = nextType; listItems.push((unordered || ordered)[1]); continue;
+      }
+      flushList(); paragraph.push(line);
+    }
+    flushBlocks();
+    return blocks.join("");
+  }
+  function renderEditorDescription(value) {
     const text = String(value); const imagePattern = /!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g;
     let output = ""; let cursor = 0;
     for (const image of text.matchAll(imagePattern)) {
       output += escapeHtml(text.slice(cursor, image.index)).replace(/\n/g, "<br>");
-      output += `<img src="${escapeHtml(image[1])}" alt="Illustration ajoutée" loading="lazy">`;
+      output += embeddedImageMarkup(image[1]);
       cursor = image.index + image[0].length;
     }
     return output + escapeHtml(text.slice(cursor)).replace(/\n/g, "<br>");
   }
+  function markdownPlainText(value) {
+    return stripEmbeddedImages(value).replace(/\[([^\]]+)\]\([^\s)]+\)/g, "$1").replace(/(^|\n)\s{0,3}(?:#{1,3}\s+|>\s?|[-+*]\s+|\d+[.)]\s+)/g, "$1").replace(/[`*_~]/g, "").replace(/\s+/g, " ").trim();
+  }
   function normalizeSearch(value) { return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase(); }
   function matchesSearch(card, query) {
     const words = normalizeSearch(query).trim().split(/\s+/).filter(Boolean);
-    const cardText = normalizeSearch(`${card.title} ${stripEmbeddedImages(card.description)}`);
+    const cardText = normalizeSearch(`${card.title} ${markdownPlainText(card.description)}`);
     return words.length === 0 || words.some((word) => cardText.includes(word));
   }
   function showNotice(message) { notice.textContent = message; notice.hidden = !message; }
@@ -59,7 +101,7 @@
   }
   function cardMarkup(card, index, type) {
     const id = escapeHtml(card.id);
-    const preview = stripEmbeddedImages(card.description).trim();
+    const preview = markdownPlainText(card.description);
     const description = type === "topic" && preview ? `<p>${escapeHtml(preview)}</p>` : "";
     const removeButton = state.editor ? `<button class="text-button delete-button" type="button" data-action="delete-${type}" data-id="${id}">Supprimer</button>` : "";
     return `<article class="card"><button class="card-main" type="button" data-action="${type === "category" ? "open-category" : "open-topic"}" data-id="${id}"><span class="card-arrow">›</span><h2>${escapeHtml(card.title)}</h2>${description}</button><div class="card-actions">${type === "topic" ? `<button class="text-button" type="button" data-action="open-topic" data-id="${id}">Lire</button>` : ""}<button class="text-button" type="button" data-action="edit-${type}" data-id="${id}">Modifier</button>${removeButton}</div></article>`;
@@ -113,7 +155,7 @@
   async function openCategory(category) {
     state.selected = category;
     $("[data-topic-title]").textContent = category.title;
-    $("[data-topic-description]").textContent = category.description;
+    $("[data-topic-description]").innerHTML = renderMarkdown(category.description);
     try { state.topics = (await request(`/topics?categoryId=${encodeURIComponent(category.id)}`)).topics; showNotice(""); }
     catch (error) { state.topics = topicsFallback.filter((topic) => topic.categoryId === category.id); if (apiBase) showNotice(error.message); }
     renderCurrentView();
@@ -210,12 +252,12 @@
     const form = $("[data-editor-form]");
     $("[data-editor-title]").textContent = action.mode === "edit" ? "Modifier la carte" : "Nouvelle carte";
     form.title.value = action.card?.title || "";
-    descriptionEditor.innerHTML = renderDescription(action.card?.description || "");
+    descriptionEditor.innerHTML = renderEditorDescription(action.card?.description || "");
     setEditorFeedback("");
     editorDialog.showModal();
   }
   function openTopic(topic) {
-    state.detail = topic; $("[data-detail-title]").textContent = topic.title; $("[data-detail-copy]").innerHTML = renderDescription(topic.description); detailDialog.showModal();
+    state.detail = topic; $("[data-detail-title]").textContent = topic.title; $("[data-detail-copy]").innerHTML = renderMarkdown(topic.description); detailDialog.showModal();
   }
   async function unlock(event) {
     event.preventDefault();

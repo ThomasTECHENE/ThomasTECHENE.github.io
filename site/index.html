@@ -56,7 +56,7 @@
             <button class="back-link" type="button" data-action="home">← Toutes les catégories</button>
             <p class="eyebrow">Catégorie</p>
             <h1 data-topic-title></h1>
-            <p class="intro" data-topic-description></p>
+            <div class="intro" data-topic-description></div>
           </div>
           <button class="primary-button" type="button" data-action="create-topic">＋ Ajouter</button>
         </div>
@@ -86,7 +86,7 @@
         <input id="card-title" name="title" maxlength="120" required />
         <label for="card-description">Description</label>
         <div id="card-description" class="description-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-describedby="description-help" data-description-editor></div>
-        <p id="description-help" class="editor-help">Collez du texte ou une image. Les images sont compressées automatiquement.</p>
+        <p id="description-help" class="editor-help">Markdown accepté : <strong>**gras**</strong>, <em>*italique*</em>, <code>`code`</code>, [lien](https://…), titres (#), listes (-) et citations (&gt;). Le HTML reste du texte. Collez aussi une image : elle est compressée automatiquement.</p>
         <p class="editor-feedback" aria-live="polite" data-editor-feedback></p>
         <div class="dialog-actions"><button class="secondary-button" type="button" data-close>Annuler</button><button class="primary-button" type="submit">Enregistrer</button></div>
       </form>
@@ -102,6 +102,6 @@
     </dialog>
 
     <script src="config.js"></script>
-    <script src="app.js?v=embedded-images-20260920"></script>
+    <script src="app.js?v=markdown-20260921"></script>
   </body>
 </html>
