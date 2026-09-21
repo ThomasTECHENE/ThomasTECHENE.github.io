@@ -47,6 +47,9 @@ button { cursor:pointer; }
 .secondary-button { color:var(--heading); border-color:var(--card-border); background:var(--surface); }
 .mobile-add { display:none; width:100%; margin-top:1.5rem; }
 .empty-state { margin:0; border:1px dashed var(--input-border); border-radius:1rem; padding:3.5rem 1.25rem; color:var(--muted); background:var(--surface); text-align:center; }
+.loading-state { display:flex; align-items:center; justify-content:center; gap:.7rem; margin:0; min-height:13.5rem; color:var(--muted); font-weight:700; }
+.loading-spinner { width:1.2rem; height:1.2rem; border:2px solid var(--line); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
 .notice { margin:0 0:1.5rem; border:1px solid #fda4af; border-radius:.75rem; padding:.8rem 1rem; color:#9f1239; background:#fff1f2; line-height:1.5; }
 :root[data-theme="dark"] .notice { color:#fecdd3; background:#3b1726; border-color:#9f1239; }
 .modal { width:min(100% - 2rem, 32rem); border:1px solid var(--card-border); border-radius:1.25rem; padding:0; color:var(--ink); background:var(--surface); box-shadow:0 22px 70px rgb(0 0 0 / .4); }

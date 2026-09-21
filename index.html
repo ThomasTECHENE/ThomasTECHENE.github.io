@@ -35,6 +35,7 @@
           <h1>Résultats</h1>
         </div>
         <div class="card-grid" data-search-results-grid aria-live="polite"></div>
+        <p class="loading-state" hidden data-search-loading aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span>Chargement des sujets…</p>
         <p class="empty-state" hidden data-empty-search-results>Aucun sujet ne correspond à votre recherche.</p>
       </section>
       <section data-categories-view>
@@ -46,7 +47,8 @@
           <button class="primary-button desktop-add" type="button" data-action="create-category">＋ Ajouter</button>
         </div>
         <div class="card-grid" data-category-grid aria-live="polite"></div>
-        <p class="empty-state" hidden data-empty-categories>Aucune catégorie ne correspond à votre recherche.</p>
+        <p class="loading-state" data-categories-loading aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span>Chargement des catégories…</p>
+        <p class="empty-state" hidden data-empty-categories>Aucune catégorie pour le moment.</p>
         <button class="primary-button mobile-add" type="button" data-action="create-category">＋ Ajouter une catégorie</button>
       </section>
 
@@ -61,6 +63,7 @@
           <button class="primary-button" type="button" data-action="create-topic">＋ Ajouter</button>
         </div>
         <div class="card-grid" data-topic-grid aria-live="polite"></div>
+        <p class="loading-state" hidden data-topics-loading aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span>Chargement des sujets…</p>
         <p class="empty-state" hidden data-empty-topics>Aucun sujet ici pour le moment. Utilisez <strong>Ajouter</strong> pour en créer un.</p>
       </section>
     </main>
@@ -102,6 +105,6 @@
     </dialog>
 
     <script src="config.js"></script>
-    <script src="app.js?v=markdown-20260921"></script>
+    <script src="app.js?v=loading-state-20260921"></script>
   </body>
 </html>

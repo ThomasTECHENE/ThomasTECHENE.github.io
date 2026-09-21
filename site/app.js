@@ -4,17 +4,7 @@
   const themeKey = "policheatsheat-theme";
   const maximumEmbeddedImages = 2;
   const maximumCompressedImageBytes = 250 * 1024;
-  const categoriesFallback = [
-    { id: "economie", title: "Économie", description: "Comprendre les grandes mécaniques qui façonnent nos choix.", sortOrder: 1 },
-    { id: "societe", title: "Société", description: "Idées, institutions et questions qui traversent notre quotidien.", sortOrder: 2 },
-    { id: "technologie", title: "Technologie", description: "Des outils qui changent la façon dont nous vivons et travaillons.", sortOrder: 3 },
-  ];
-  const topicsFallback = [
-    { id: "inflation", categoryId: "economie", title: "L’inflation, simplement", description: "Pourquoi les prix montent, comment elle est mesurée, et ce qu’elle change au quotidien.", sortOrder: 1 },
-    { id: "offre-demande", categoryId: "economie", title: "L’offre et la demande", description: "Le principe qui aide à lire les prix, les pénuries et les comportements de marché.", sortOrder: 2 },
-    { id: "budget-public", categoryId: "economie", title: "Le budget public", description: "Comment l’État collecte, répartit et utilise l’argent public.", sortOrder: 3 },
-  ];
-  const state = { categories: categoriesFallback, topics: [], selected: null, editor: Boolean(sessionStorage.getItem(tokenKey)), pending: null, editorForm: null, detail: null, search: { query: "", topics: [], loading: false } };
+  const state = { categories: [], topics: [], loading: { categories: true, topics: false }, selected: null, editor: Boolean(sessionStorage.getItem(tokenKey)), pending: null, editorForm: null, detail: null, search: { query: "", topics: [], loading: false } };
   const $ = (selector) => document.querySelector(selector);
   const categoryGrid = $("[data-category-grid]");
   const topicGrid = $("[data-topic-grid]");
@@ -113,20 +103,32 @@
     if (clearButton) clearButton.hidden = !state.search.query;
   }
   function renderCategories() {
+    const loading = state.loading.categories;
+    categoryGrid.hidden = loading;
+    categoryGrid.setAttribute("aria-busy", String(loading));
     categoryGrid.innerHTML = state.categories.map((card, index) => cardMarkup(card, index, "category")).join("");
-    $("[data-empty-categories]").hidden = true;
+    $("[data-categories-loading]").hidden = !loading;
+    $("[data-empty-categories]").hidden = loading || state.categories.length > 0;
   }
   function renderTopics() {
+    const loading = state.loading.topics;
+    topicGrid.hidden = loading;
+    topicGrid.setAttribute("aria-busy", String(loading));
     topicGrid.innerHTML = state.topics.map((card, index) => cardMarkup(card, index, "topic")).join("");
+    $("[data-topics-loading]").hidden = !loading;
     const emptyState = $("[data-empty-topics]");
-    emptyState.hidden = state.topics.length > 0;
+    emptyState.hidden = loading || state.topics.length > 0;
     emptyState.innerHTML = "Aucun sujet ici pour le moment. Utilisez <strong>Ajouter</strong> pour en créer un.";
   }
   function renderSearchResults() {
+    const loading = state.search.loading;
     const topics = state.search.topics.filter((card) => matchesSearch(card, state.search.query));
+    searchResultsGrid.hidden = loading;
+    searchResultsGrid.setAttribute("aria-busy", String(loading));
     searchResultsGrid.innerHTML = topics.map((card, index) => cardMarkup(card, index, "topic")).join("");
+    $("[data-search-loading]").hidden = !loading;
     const emptyState = $("[data-empty-search-results]");
-    emptyState.hidden = state.search.loading || topics.length > 0;
+    emptyState.hidden = loading || topics.length > 0;
   }
   function renderCurrentView() {
     const isSearching = Boolean(state.search.query.trim());
@@ -148,23 +150,27 @@
   }
   function setHome() { state.selected = null; state.topics = []; showNotice(""); renderCurrentView(); }
   async function loadCategories() {
+    state.loading.categories = true; state.categories = []; renderCurrentView();
     try { state.categories = (await request("/categories")).categories; showNotice(""); }
-    catch (error) { state.categories = categoriesFallback; if (apiBase) showNotice(error.message); }
+    catch (error) { state.categories = []; if (apiBase) showNotice(error.message); }
+    finally { state.loading.categories = false; }
     renderCurrentView();
   }
   async function openCategory(category) {
-    state.selected = category;
+    state.selected = category; state.topics = []; state.loading.topics = true;
     $("[data-topic-title]").textContent = category.title;
     $("[data-topic-description]").innerHTML = renderMarkdown(category.description);
+    renderCurrentView();
     try { state.topics = (await request(`/topics?categoryId=${encodeURIComponent(category.id)}`)).topics; showNotice(""); }
-    catch (error) { state.topics = topicsFallback.filter((topic) => topic.categoryId === category.id); if (apiBase) showNotice(error.message); }
+    catch (error) { state.topics = []; if (apiBase) showNotice(error.message); }
+    finally { state.loading.topics = false; }
     renderCurrentView();
   }
   async function updateSearch(query) {
     state.search.query = query;
     if (!query.trim()) { state.search.loading = false; return renderCurrentView(); }
     const requestQuery = query;
-    state.search.loading = true;
+    state.search.loading = true; state.search.topics = [];
     renderCurrentView();
     try {
       const data = await request("/topics");
@@ -174,7 +180,7 @@
       showNotice("");
     } catch (error) {
       if (state.search.query !== requestQuery) return;
-      state.search.topics = topicsFallback;
+      state.search.topics = [];
       state.search.loading = false;
       if (apiBase) showNotice(error.message);
     }
