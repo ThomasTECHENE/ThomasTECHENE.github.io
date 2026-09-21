@@ -11,6 +11,12 @@
       "migrations_dir": "migrations"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "ASSETS",
+      "bucket_name": "policheatsheet-assets"
+    }
+  ],
   "vars": {
     "ALLOWED_ORIGIN": "https://thomastechene.github.io"
   }

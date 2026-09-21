@@ -5,6 +5,7 @@
   const themeKey = "policheatsheat-theme";
   const maximumEmbeddedImages = 2;
   const maximumCompressedImageBytes = 250 * 1024;
+  const maximumPdfBytes = 10 * 1024 * 1024;
   const deviceUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const state = { categories: [], topics: [], loading: { categories: true, topics: false }, selected: null, editor: Boolean(sessionStorage.getItem(tokenKey)), pending: null, editorForm: null, detail: null, search: { query: "", topics: [], loading: false } };
   const $ = (selector) => document.querySelector(selector);
@@ -18,20 +19,25 @@
   const accessDialog = $("[data-access-dialog]");
   const editorDialog = $("[data-editor-dialog]");
   const detailDialog = $("[data-detail-dialog]");
+  const imageDialog = $("[data-image-dialog]");
   const descriptionEditor = $("[data-description-editor]");
   const editorFeedback = $("[data-editor-feedback]");
 
   function escapeHtml(value) { return String(value).replace(/[&<>'"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[character]); }
   function isEmbeddedImage(value) { return /^data:image\/webp;base64,[A-Za-z0-9+/=]+$/.test(value); }
-  function stripEmbeddedImages(value) { return String(value).replace(/!\[image\]\(data:image\/webp;base64,[A-Za-z0-9+/=]+\)/g, ""); }
-  function embeddedImageMarkup(source) { return `<img src="${escapeHtml(source)}" alt="Illustration ajoutée" loading="lazy">`; }
+  function isStoredImage(value) { return /^media:\/\/images\/[0-9a-f-]+\.webp$/i.test(value); }
+  function isStoredDocument(value) { return /^media:\/\/documents\/[0-9a-f-]+\.pdf$/i.test(value); }
+  function mediaUrl(source) { return `${apiBase}/media/${source.slice("media://".length).split("/").map(encodeURIComponent).join("/")}`; }
+  function imageUrl(source) { return isStoredImage(source) ? mediaUrl(source) : source; }
+  function stripEmbeddedImages(value) { return String(value).replace(/!\[image\]\((?:data:image\/webp;base64,[A-Za-z0-9+/=]+|media:\/\/images\/[0-9a-f-]+\.webp)\)/gi, ""); }
+  function embeddedImageMarkup(source) { return `<img src="${escapeHtml(imageUrl(source))}" data-image-source="${escapeHtml(source)}" data-action="expand-image" alt="Illustration ajoutée" loading="lazy">`; }
   function renderInlineMarkdown(value) {
     const tokens = [];
     const protect = (html) => `\u0000${tokens.push(html) - 1}\u0000`;
     let output = escapeHtml(value);
-    output = output.replace(/!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g, (_, source) => protect(embeddedImageMarkup(source)));
+    output = output.replace(/!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+|media:\/\/images\/[0-9a-f-]+\.webp)\)/gi, (_, source) => protect(embeddedImageMarkup(source)));
     output = output.replace(/`([^`\n]+)`/g, (_, code) => protect(`<code>${code}</code>`));
-    output = output.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s<>()]+)\)/g, (_, label, url) => protect(`<a href="${url}" target="_blank" rel="noopener noreferrer">${label}</a>`));
+    output = output.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s<>()]+|media:\/\/documents\/[0-9a-f-]+\.pdf)\)/gi, (_, label, url) => protect(`<a href="${escapeHtml(isStoredDocument(url) ? mediaUrl(url) : url)}" target="_blank" rel="noopener noreferrer">${label}</a>`));
     output = output.replace(/~~(?=\S)([\s\S]*?\S)~~/g, "<del>$1</del>");
     output = output.replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "<strong>$2</strong>");
     output = output.replace(/\*([^*\n]+)\*|_([^_\n]+)_/g, (_, italic, underscore) => `<em>${italic || underscore}</em>`);
@@ -64,7 +70,7 @@
     return blocks.join("");
   }
   function renderEditorDescription(value) {
-    const text = String(value); const imagePattern = /!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g;
+    const text = String(value); const imagePattern = /!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+|media:\/\/images\/[0-9a-f-]+\.webp)\)/gi;
     let output = ""; let cursor = 0;
     for (const image of text.matchAll(imagePattern)) {
       output += escapeHtml(text.slice(cursor, image.index)).replace(/\n/g, "<br>");
@@ -222,7 +228,10 @@
     if (node.nodeType === Node.TEXT_NODE) return node.textContent || "";
     if (node.nodeType !== Node.ELEMENT_NODE) return "";
     const element = node;
-    if (element.tagName === "IMG") return isEmbeddedImage(element.getAttribute("src") || "") ? `![image](${element.getAttribute("src")})` : "";
+    if (element.tagName === "IMG") {
+      const source = element.getAttribute("data-image-source") || element.getAttribute("src") || "";
+      return isEmbeddedImage(source) || isStoredImage(source) ? `![image](${source})` : "";
+    }
     if (element.tagName === "BR") return "\n";
     const value = [...element.childNodes].map(descriptionNodeValue).join("");
     return ["DIV", "P"].includes(element.tagName) ? `${value}\n` : value;
@@ -275,9 +284,31 @@
     setEditorFeedback("Compression de l’image…");
     try {
       const source = await compressImage(file); const image = document.createElement("img");
-      image.src = source; image.alt = "Illustration ajoutée"; insertEditorNode(image);
+      image.src = source; image.dataset.imageSource = source; image.dataset.action = "expand-image"; image.alt = "Illustration ajoutée"; insertEditorNode(image);
       setEditorFeedback("Image ajoutée et compressée.");
     } catch (error) { setEditorFeedback(error instanceof Error ? error.message : "La compression a échoué."); }
+  }
+  async function uploadPastedImages(description) {
+    const images = [...description.matchAll(/!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g)];
+    let uploaded = description;
+    for (const image of images) {
+      const data = await request("/uploads/images", { method: "POST", body: JSON.stringify({ source: image[1] }) });
+      uploaded = uploaded.replace(image[0], `![image](${data.source})`);
+    }
+    return uploaded;
+  }
+  async function uploadPdf(event) {
+    const file = event.currentTarget.files?.[0]; event.currentTarget.value = "";
+    if (!file) return;
+    if (file.type !== "application/pdf" && !file.name.toLowerCase().endsWith(".pdf")) return setEditorFeedback("Sélectionnez un fichier PDF.");
+    if (file.size > maximumPdfBytes) return setEditorFeedback("Le PDF est trop volumineux (10 Mo maximum).");
+    const submit = $("[data-editor-form]").querySelector("button[type=submit]"); submit.disabled = true; setEditorFeedback("Import du PDF…");
+    try {
+      const response = await fetch(apiUrl("/uploads/documents"), { method: "POST", headers: { Authorization: `Bearer ${sessionStorage.getItem(tokenKey) || ""}`, "Content-Type": "application/pdf", "X-Filename": encodeURIComponent(file.name) }, body: file });
+      const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error || "L’import du PDF a échoué.");
+      insertEditorNode(document.createTextNode(`[${data.filename}](${data.source})`)); setEditorFeedback("PDF ajouté à la description.");
+    } catch (error) { setEditorFeedback(error instanceof Error ? error.message : "L’import du PDF a échoué."); }
+    finally { submit.disabled = false; }
   }
   function openEditor(action) {
     state.editorForm = action;
@@ -305,12 +336,13 @@
     event.preventDefault();
     const action = state.editorForm; if (!action) return;
     const form = event.currentTarget; const submit = form.querySelector("button[type=submit]"); submit.disabled = true;
-    const description = descriptionFromEditor();
-    if (!description) { showNotice("Une description ou une image est requise."); submit.disabled = false; return; }
-    const payload = { title: form.title.value, description, ...(action.kind === "topic" ? { categoryId: action.categoryId } : {}) };
+    let description = descriptionFromEditor();
+    if (!description && action.kind === "topic") { showNotice("Une description ou une image est requise."); submit.disabled = false; return; }
     const base = action.kind === "topic" ? "/topics" : "/categories";
     const url = action.mode === "edit" ? `${base}/${encodeURIComponent(action.card.id)}` : base;
     try {
+      description = await uploadPastedImages(description);
+      const payload = { title: form.title.value, description, ...(action.kind === "topic" ? { categoryId: action.categoryId } : {}) };
       await request(url, { method: action.mode === "edit" ? "PUT" : "POST", body: JSON.stringify(payload) });
       editorDialog.close();
       if (action.kind === "category") { await loadCategories(); if (state.selected) await openCategory(state.categories.find((item) => item.id === state.selected.id) || state.selected); }
@@ -353,16 +385,22 @@
     if (persist) localStorage.setItem(themeKey, isDark ? "dark" : "light");
   }
   function toggleTheme() { setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); }
+  function openExpandedImage(source) {
+    if (!isEmbeddedImage(source) && !isStoredImage(source)) return;
+    $("[data-expanded-image]").src = imageUrl(source); imageDialog.showModal();
+  }
   function actionFromElement(event) {
     const target = event.target;
     const element = target instanceof Element ? target : target?.parentElement;
     const button = element?.closest("[data-action]"); if (!button) return;
     const { action, id } = button.dataset;
     if (action === "toggle-theme") return toggleTheme();
+    if (action === "expand-image") return openExpandedImage(button.dataset.imageSource || "");
     if (action === "clear-search") return updateSearch("");
     if (action === "home") return setHome();
     if (action === "create-category") return requireEditor({ kind: "category", mode: "create" });
     if (action === "create-topic") return requireEditor({ kind: "topic", mode: "create", categoryId: state.selected.id });
+    if (action === "upload-pdf") return $("[data-pdf-upload]").click();
     if (action === "open-category") return openCategory(findCard("category", id));
     if (action === "open-topic") return openTopic(findCard("topic", id));
     if (action === "edit-category") return requireEditor({ kind: "category", mode: "edit", card: findCard("category", id) });
@@ -376,6 +414,7 @@
   $("[data-search-input]").addEventListener("input", (event) => updateSearch(event.currentTarget.value));
   $("[data-access-form]").addEventListener("submit", unlock);
   $("[data-editor-form]").addEventListener("submit", saveCard);
+  $("[data-pdf-upload]").addEventListener("change", uploadPdf);
   descriptionEditor.addEventListener("paste", pasteDescription);
   setTheme(localStorage.getItem(themeKey) === "dark" ? "dark" : "light", false);
   renderEditorState(); loadCategories();

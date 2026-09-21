@@ -1,5 +1,6 @@
 export interface Env {
   DB: D1Database;
+  ASSETS: R2Bucket;
   EDITOR_ACCESS_CODE: string;
   EDITOR_SESSION_SECRET: string;
   ALLOWED_ORIGIN?: string;
@@ -13,8 +14,12 @@ const encoder = new TextEncoder();
 const maximumDescriptionLength = 750_000;
 const maximumEmbeddedImages = 2;
 const maximumEmbeddedImageLength = 350_000;
+const maximumPdfBytes = 10 * 1024 * 1024;
 const rememberedDeviceLifetime = 1000 * 60 * 60 * 24 * 30;
 const deviceUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const dataImagePattern = /!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g;
+const imageSourcePattern = /!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+|media:\/\/images\/[0-9a-f-]+\.webp)\)/g;
+const mediaKeyPattern = /^(?:images\/[0-9a-f-]+\.webp|documents\/[0-9a-f-]+\.pdf)$/;
 const defaultCategories: Card[] = [
   { id: "economie", title: "Économie", description: "Comprendre les grandes mécaniques qui façonnent nos choix.", sortOrder: 1 },
   { id: "societe", title: "Société", description: "Idées, institutions et questions qui traversent notre quotidien.", sortOrder: 2 },
@@ -33,7 +38,7 @@ function cors(request: Request, env: Env): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": allowed,
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Authorization, Content-Type",
+    "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Filename",
     "Vary": "Origin",
   };
 }
@@ -53,8 +58,8 @@ function validateInput(value: unknown): Input {
   const description = typeof body.description === "string" ? body.description.trim() : "";
   if (!title) throw new Error("Un titre est requis.");
   if (title.length > 120 || description.length > maximumDescriptionLength) throw new Error("Le titre ou la description est trop long.");
-  const images = [...description.matchAll(/!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g)];
-  if (images.length > maximumEmbeddedImages || images.some((image) => image[1].length > maximumEmbeddedImageLength)) {
+  const images = [...description.matchAll(imageSourcePattern)];
+  if (images.length > maximumEmbeddedImages || images.some((image) => image[1].startsWith("data:") && image[1].length > maximumEmbeddedImageLength)) {
     throw new Error("Une description peut contenir au plus deux images WebP compressées.");
   }
   return { title, description };
@@ -62,6 +67,42 @@ function validateInput(value: unknown): Input {
 
 function card(row: Record<string, unknown>): Card {
   return { id: String(row.id), title: String(row.title), description: String(row.description || ""), sortOrder: Number(row.sort_order || 0) };
+}
+
+function mediaSource(key: string) { return `media://${key}`; }
+
+function mediaKey(source: string) {
+  const key = source.startsWith("media://") ? source.slice("media://".length) : "";
+  return mediaKeyPattern.test(key) ? key : null;
+}
+
+function dataImageBytes(source: string) {
+  const match = /^data:image\/webp;base64,([A-Za-z0-9+/=]+)$/.exec(source);
+  if (!match) throw new Error("Image invalide.");
+  const binary = atob(match[1]); const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+async function migrateEmbeddedImages(env: Env, description: string) {
+  const images = [...description.matchAll(dataImagePattern)];
+  if (!images.length) return description;
+  let migrated = description;
+  for (const image of images) {
+    const key = `images/${crypto.randomUUID()}.webp`;
+    await env.ASSETS.put(key, dataImageBytes(image[1]), { httpMetadata: { contentType: "image/webp" } });
+    migrated = migrated.replace(image[0], `![image](${mediaSource(key)})`);
+  }
+  return migrated;
+}
+
+async function migrateStoredDescription(env: Env, table: "categories" | "topics", row: Record<string, unknown>) {
+  const description = String(row.description || "");
+  const migrated = await migrateEmbeddedImages(env, description);
+  if (migrated !== description) {
+    await env.DB.prepare(`UPDATE ${table} SET description = ?, updated_at = ? WHERE id = ?`).bind(migrated, new Date().toISOString(), String(row.id)).run();
+  }
+  return { ...row, description: migrated };
 }
 
 function topic(row: Record<string, unknown>): Topic { return { ...card(row), categoryId: String(row.category_id) }; }
@@ -153,13 +194,15 @@ async function writeCategory(env: Env, input: Input & { sortOrder?: number }, id
 
 async function listCategories(env: Env) {
   const result = await env.DB.prepare("SELECT id, title, description, sort_order FROM categories ORDER BY sort_order ASC").all<Record<string, unknown>>();
-  return merge(defaultCategories, result.results.map(card), await deletedIds(env, "category"));
+  const stored = await Promise.all(result.results.map(async (row) => card(await migrateStoredDescription(env, "categories", row))));
+  return merge(defaultCategories, stored, await deletedIds(env, "category"));
 }
 
 async function listTopics(env: Env, categoryId: string) {
   if (await isDeleted(env, "category", categoryId)) return [];
   const result = await env.DB.prepare("SELECT id, category_id, title, description, sort_order FROM topics WHERE category_id = ? ORDER BY sort_order ASC").bind(categoryId).all<Record<string, unknown>>();
-  return merge(defaultTopics.filter((item) => item.categoryId === categoryId), result.results.map(topic), await deletedIds(env, "topic"));
+  const stored = await Promise.all(result.results.map(async (row) => topic(await migrateStoredDescription(env, "topics", row))));
+  return merge(defaultTopics.filter((item) => item.categoryId === categoryId), stored, await deletedIds(env, "topic"));
 }
 
 async function listAllTopics(env: Env) {
@@ -168,7 +211,7 @@ async function listAllTopics(env: Env) {
     deletedIds(env, "topic"),
     deletedIds(env, "category"),
   ]);
-  const stored = result.results.map(topic).filter((item) => !deletedCategories.has(item.categoryId));
+  const stored = (await Promise.all(result.results.map(async (row) => topic(await migrateStoredDescription(env, "topics", row))))).filter((item) => !deletedCategories.has(item.categoryId));
   const defaults = defaultTopics.filter((item) => !deletedCategories.has(item.categoryId));
   return merge(defaults, stored, deletedTopics);
 }
@@ -201,6 +244,43 @@ async function deleteTopic(env: Env, id: string) {
   ]);
 }
 
+async function uploadImage(env: Env, source: unknown) {
+  if (typeof source !== "string") throw new Error("Image requise.");
+  const bytes = dataImageBytes(source);
+  if (source.length > maximumEmbeddedImageLength) throw new Error("L’image compressée est trop volumineuse.");
+  const key = `images/${crypto.randomUUID()}.webp`;
+  await env.ASSETS.put(key, bytes, { httpMetadata: { contentType: "image/webp" } });
+  return mediaSource(key);
+}
+
+function pdfFilename(value: string | null) {
+  let decoded = "document.pdf";
+  try { if (value) decoded = decodeURIComponent(value); } catch { /* Use the fallback name. */ }
+  const cleaned = decoded.replace(/[^A-Za-z0-9À-ÿ._ -]/g, "_").trim().slice(0, 100);
+  return cleaned.toLowerCase().endsWith(".pdf") ? cleaned : `${cleaned || "document"}.pdf`;
+}
+
+async function uploadPdf(request: Request, env: Env) {
+  if (request.headers.get("Content-Type")?.split(";", 1)[0] !== "application/pdf") throw new Error("Seuls les fichiers PDF sont acceptés.");
+  const bytes = await request.arrayBuffer();
+  if (!bytes.byteLength) throw new Error("Le PDF est vide.");
+  if (bytes.byteLength > maximumPdfBytes) throw new Error("Le PDF est trop volumineux (10 Mo maximum).");
+  const filename = pdfFilename(request.headers.get("X-Filename")); const key = `documents/${crypto.randomUUID()}.pdf`;
+  await env.ASSETS.put(key, bytes, { httpMetadata: { contentType: "application/pdf", contentDisposition: `inline; filename="${filename}"` } });
+  return { source: mediaSource(key), filename };
+}
+
+async function serveMedia(request: Request, env: Env, path: string) {
+  let key = "";
+  try { key = decodeURIComponent(path.slice("/media/".length)); } catch { return failure(request, env, "Fichier introuvable.", 404); }
+  if (!mediaKeyPattern.test(key)) return failure(request, env, "Fichier introuvable.", 404);
+  const object = await env.ASSETS.get(key);
+  if (!object) return failure(request, env, "Fichier introuvable.", 404);
+  const headers: Record<string, string> = { "Content-Type": object.httpMetadata?.contentType || (key.endsWith(".pdf") ? "application/pdf" : "image/webp"), "Cache-Control": "public, max-age=31536000, immutable", ...cors(request, env) };
+  if (object.httpMetadata?.contentDisposition) headers["Content-Disposition"] = object.httpMetadata.contentDisposition;
+  return new Response(object.body, { headers });
+}
+
 async function content(request: Request, env: Env, path: string) {
   if (request.method === "GET" && path === "/categories") return json(request, env, { categories: await listCategories(env) });
   if (request.method === "GET" && path === "/topics") {
@@ -216,6 +296,11 @@ async function content(request: Request, env: Env, path: string) {
     await deleteTopic(env, decodeURIComponent(path.slice(8)));
     return json(request, env, { ok: true });
   }
+  if (request.method === "POST" && path === "/uploads/images") {
+    const body = await request.json() as { source?: unknown };
+    return json(request, env, { source: await uploadImage(env, body.source) }, 201);
+  }
+  if (request.method === "POST" && path === "/uploads/documents") return json(request, env, await uploadPdf(request, env), 201);
   if (request.method !== "POST" && request.method !== "PUT") return failure(request, env, "Route introuvable.", 404);
   const body = await request.json();
   const input = validateInput(body);
@@ -233,6 +318,7 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request, env) });
     const path = new URL(request.url).pathname;
     try {
+      if (request.method === "GET" && path.startsWith("/media/")) return await serveMedia(request, env, path);
       if (request.method === "POST" && path === "/session") {
         const body = await request.json() as { code?: unknown; deviceId?: unknown };
         if (typeof body.code !== "string" || !constantTimeEqual(body.code, env.EDITOR_ACCESS_CODE)) return failure(request, env, "Code incorrect.", 401);

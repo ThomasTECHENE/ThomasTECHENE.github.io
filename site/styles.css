@@ -62,7 +62,7 @@ button { cursor:pointer; }
 .modal input, .modal textarea { width:100%; border:1px solid var(--input-border); border-radius:.75rem; padding:.75rem; color:var(--ink); background:var(--input-bg); }
 .description-editor { min-height:9rem; overflow:auto; border:1px solid var(--input-border); border-radius:.75rem; padding:.75rem; color:var(--ink); background:var(--input-bg); line-height:1.55; white-space:pre-wrap; }
 .description-editor:empty::before { content:"Écrivez une description ou collez une image"; color:var(--muted); }
-.description-editor img, .detail-copy img, .intro img { display:block; width:auto; max-width:100%; max-height:24rem; margin:.8rem 0; border-radius:.75rem; }
+.description-editor img, .detail-copy img, .intro img { display:block; width:auto; max-width:100%; max-height:24rem; margin:.8rem 0; border-radius:.75rem; cursor:zoom-in; }
 .editor-help, .editor-feedback { margin:0; color:var(--muted); font-size:.82rem; line-height:1.45; }
 .editor-feedback { min-height:1.2rem; color:var(--accent); }
 .modal input:focus, .modal textarea:focus, .description-editor:focus, .search-field input:focus, button:focus-visible { outline:3px solid var(--input-border); outline-offset:2px; }
@@ -81,4 +81,7 @@ button { cursor:pointer; }
 .detail-copy code, .intro code { border-radius:.3rem; padding:.1rem .3rem; background:var(--subtle); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em; }
 .detail-copy a, .intro a { color:var(--accent); font-weight:700; }
 .detail-copy hr, .intro hr { border:0; border-top:1px solid var(--line); margin:1.25rem 0; }
+.image-modal { position:relative; width:auto; max-width:min(100% - 2rem, 72rem); max-height:calc(100vh - 2rem); overflow:hidden; border:1px solid var(--card-border); border-radius:1rem; padding:0; background:var(--surface); box-shadow:0 22px 70px rgb(0 0 0 / .55); }
+.image-modal::backdrop { background:rgb(0 0 0 / .72); }
+.image-modal img { display:block; max-width:100%; max-height:calc(100vh - 2rem); object-fit:contain; }
 @media (max-width: 760px) { .topbar { padding:1rem 1.25rem; } .editor-badge { display:none; } .theme-toggle { min-width:2.5rem; padding:.5rem; justify-content:center; } .theme-toggle [data-theme-label] { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0,0,0,0); } .page-shell { padding:2.5rem 1.25rem; } .card-grid { grid-template-columns:1fr; } .desktop-add { display:none; } .mobile-add { display:inline-flex; } .topic-heading { align-items:start; } }
