@@ -1,0 +1,1 @@
+ALTER TABLE editor_devices ADD COLUMN username TEXT NOT NULL DEFAULT '';

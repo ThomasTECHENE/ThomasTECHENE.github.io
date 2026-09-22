@@ -16,6 +16,8 @@ const maximumDescriptionLength = 750_000;
 const maximumEmbeddedImages = 2;
 const maximumEmbeddedImageLength = 350_000;
 const maximumPdfBytes = 10 * 1024 * 1024;
+const rememberedDeviceLifetime = 1000 * 60 * 60 * 24 * 30;
+const deviceUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const dataImagePattern = /!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g;
 const imageSourcePattern = /!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+|media:\/\/images\/[0-9a-f-]+\.webp)\)/g;
 const mediaKeyPattern = /^(?:images\/[0-9a-f-]+\.webp|documents\/[0-9a-f-]+\.pdf)$/;
@@ -129,6 +131,25 @@ async function hmac(value: string, secret: string) {
   const key = await crypto.subtle.importKey("raw", encoder.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const bytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(value)));
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function deviceId(value: unknown) {
+  return typeof value === "string" && deviceUuidPattern.test(value) ? value.toLowerCase() : null;
+}
+
+async function rememberDevice(env: Env, id: string, username: string) {
+  const timestamp = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + rememberedDeviceLifetime).toISOString();
+  const deviceHash = await hmac(id, env.EDITOR_SESSION_SECRET);
+  await env.DB.prepare("INSERT INTO editor_devices (device_hash, username, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(device_hash) DO UPDATE SET username = excluded.username, expires_at = excluded.expires_at, updated_at = excluded.updated_at")
+    .bind(deviceHash, username, expiresAt, timestamp, timestamp).run();
+  return expiresAt;
+}
+
+async function rememberedUsername(env: Env, id: string) {
+  const deviceHash = await hmac(id, env.EDITOR_SESSION_SECRET);
+  const row = await env.DB.prepare("SELECT username, expires_at FROM editor_devices WHERE device_hash = ?").bind(deviceHash).first<{ username: string; expires_at: string }>();
+  return row && Date.parse(row.expires_at) > Date.now() ? row.username : null;
 }
 
 function encodeUsername(username: string) {
@@ -333,11 +354,31 @@ export default {
         return username ? json(request, env, { username }) : failure(request, env, "Accès éditeur requis.", 403);
       }
       if (request.method === "POST" && path === "/session") {
-        const body = await request.json() as { code?: unknown; username?: unknown };
+        const body = await request.json() as { code?: unknown; username?: unknown; deviceId?: unknown };
         if (typeof body.code !== "string" || !constantTimeEqual(body.code, env.EDITOR_ACCESS_CODE)) return failure(request, env, "Code incorrect.", 401);
         const username = typeof body.username === "string" ? body.username.trim() : "";
         if (!username || username.length > 120) return failure(request, env, "Un nom d’utilisateur valide est requis.");
+        const id = deviceId(body.deviceId);
+        if (!id) return failure(request, env, "Identifiant d’appareil invalide.");
+        const rememberUntil = await rememberDevice(env, id, username);
+        return json(request, env, { token: await sessionToken(env, username), username, rememberUntil });
+      }
+      if (request.method === "POST" && path === "/session/remembered") {
+        const body = await request.json() as { deviceId?: unknown };
+        const id = deviceId(body.deviceId);
+        const username = id ? await rememberedUsername(env, id) : null;
+        if (!id || !username) return failure(request, env, "Accès mémorisé expiré.", 401);
         return json(request, env, { token: await sessionToken(env, username), username });
+      }
+      if (request.method === "DELETE" && path === "/session/remembered") {
+        const username = await authenticatedUsername(request, env);
+        if (!username) return failure(request, env, "Accès éditeur requis.", 403);
+        const body = await request.json() as { deviceId?: unknown };
+        const id = deviceId(body.deviceId);
+        if (!id) return failure(request, env, "Identifiant d’appareil invalide.");
+        const deviceHash = await hmac(id, env.EDITOR_SESSION_SECRET);
+        await env.DB.prepare("DELETE FROM editor_devices WHERE device_hash = ? AND username = ?").bind(deviceHash, username).run();
+        return json(request, env, { ok: true });
       }
       if (request.method === "GET" && path === "/health") return json(request, env, { ok: true });
       return await content(request, env, path);

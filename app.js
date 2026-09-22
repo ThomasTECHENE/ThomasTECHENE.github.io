@@ -1,12 +1,14 @@
 (() => {
   const apiBase = (window.CARNET_API_BASE || "").replace(/\/$/, "");
   const tokenKey = "carnet-editor-token";
+  const deviceIdKey = "carnet-editor-device-id";
   const themeKey = "policheatsheat-theme";
   const authorKey = "politcheatsheet-author";
   const usernameKey = "politcheatsheet-username";
   const maximumEmbeddedImages = 2;
   const maximumCompressedImageBytes = 250 * 1024;
   const maximumPdfBytes = 10 * 1024 * 1024;
+  const deviceUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const state = { categories: [], topics: [], loading: { categories: true, topics: false }, selected: null, editor: false, username: "", pending: null, editorForm: null, detail: null, search: { query: "", topics: [], loading: false } };
   const $ = (selector) => document.querySelector(selector);
   const categoryGrid = $("[data-category-grid]");
@@ -97,12 +99,27 @@
     if (!response.ok) throw new Error(body.error || "La demande a échoué.");
     return body;
   }
+  async function restoreRememberedSession() {
+    const deviceId = localStorage.getItem(deviceIdKey);
+    if (!deviceId || !deviceUuidPattern.test(deviceId)) return false;
+    try {
+      const data = await request("/session/remembered", { method: "POST", body: JSON.stringify({ deviceId }) });
+      sessionStorage.setItem(tokenKey, data.token); state.editor = true; state.username = data.username; renderEditorState();
+      return true;
+    } catch (error) {
+      if (/Accès mémorisé expiré/.test(error instanceof Error ? error.message : "")) localStorage.removeItem(deviceIdKey);
+      return false;
+    }
+  }
   async function validateCurrentSession() {
     try {
       const data = await request("/session/current");
       state.editor = true; state.username = data.username;
     } catch (error) {
-      if (/Accès éditeur requis/.test(error instanceof Error ? error.message : "")) disconnect(false);
+      if (/Accès éditeur requis/.test(error instanceof Error ? error.message : "")) {
+        sessionStorage.removeItem(tokenKey); state.editor = false; state.username = "";
+        if (!(await restoreRememberedSession())) renderEditorState();
+      }
     }
     renderEditorState();
   }
@@ -228,7 +245,9 @@
     $("[data-user-menu]").hidden = !open;
   }
   function disconnect(showMessage = true) {
-    sessionStorage.removeItem(tokenKey);
+    const deviceId = localStorage.getItem(deviceIdKey);
+    if (deviceId && sessionStorage.getItem(tokenKey)) request("/session/remembered", { method: "DELETE", body: JSON.stringify({ deviceId }) }).catch(() => {});
+    sessionStorage.removeItem(tokenKey); localStorage.removeItem(deviceIdKey);
     state.editor = false; state.username = ""; setUserMenu(false); renderEditorState();
     if (showMessage) showNotice("Vous êtes déconnecté.");
   }
@@ -340,8 +359,9 @@
     const form = event.currentTarget; const submit = form.querySelector("button[type=submit]"); submit.disabled = true;
     try {
       const username = form.elements.username.value.trim();
-      const data = await request("/session", { method: "POST", body: JSON.stringify({ code: form.elements["access-code"].value, username }) });
-      sessionStorage.setItem(tokenKey, data.token); localStorage.setItem(usernameKey, data.username);
+      const deviceId = localStorage.getItem(deviceIdKey) || crypto.randomUUID();
+      const data = await request("/session", { method: "POST", body: JSON.stringify({ code: form.elements["access-code"].value, username, deviceId }) });
+      sessionStorage.setItem(tokenKey, data.token); localStorage.setItem(deviceIdKey, deviceId); localStorage.setItem(usernameKey, data.username);
       state.editor = true; state.username = data.username; renderEditorState(); accessDialog.close();
       if (state.pending) openEditor(state.pending);
     } catch (error) { showNotice(error.message); }
@@ -367,7 +387,9 @@
       else if (state.selected) await openCategory(state.selected);
     } catch (error) {
       if (/Accès éditeur requis/.test(error.message)) {
-        disconnect(false); editorDialog.close(); requireEditor(action);
+        sessionStorage.removeItem(tokenKey); state.editor = false; state.username = "";
+        if (await restoreRememberedSession()) { editorDialog.close(); openEditor(action); }
+        else { localStorage.removeItem(deviceIdKey); renderEditorState(); editorDialog.close(); requireEditor(action); }
       }
       else showNotice(error.message);
     } finally { submit.disabled = false; }
@@ -385,7 +407,17 @@
       else if (state.selected) await openCategory(state.selected);
     } catch (error) {
       if (/Accès éditeur requis/.test(error.message)) {
-        disconnect(false); showNotice("Votre session a expiré. Connectez-vous à nouveau pour continuer.");
+        sessionStorage.removeItem(tokenKey); state.editor = false; state.username = "";
+        if (await restoreRememberedSession()) {
+          try {
+            await request(`${base}/${encodeURIComponent(id)}`, { method: "DELETE" });
+            if (kind === "category") { if (state.selected?.id === id) setHome(); await loadCategories(); }
+            else if (state.search.query.trim()) await updateSearch(state.search.query);
+            else if (state.selected) await openCategory(state.selected);
+          } catch (retryError) { showNotice(retryError.message); }
+        } else {
+          localStorage.removeItem(deviceIdKey); renderEditorState(); showNotice("Votre session a expiré. Connectez-vous à nouveau pour continuer.");
+        }
       } else showNotice(error.message);
     }
   }
@@ -434,4 +466,5 @@
   setTheme(localStorage.getItem(themeKey) === "dark" ? "dark" : "light", false);
   renderEditorState(); loadCategories();
   if (sessionStorage.getItem(tokenKey)) validateCurrentSession();
+  else restoreRememberedSession();
 })();
