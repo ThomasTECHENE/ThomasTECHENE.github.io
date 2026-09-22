@@ -1,15 +1,13 @@
 (() => {
   const apiBase = (window.CARNET_API_BASE || "").replace(/\/$/, "");
   const tokenKey = "carnet-editor-token";
-  const deviceIdKey = "carnet-editor-device-id";
   const themeKey = "policheatsheat-theme";
   const authorKey = "politcheatsheet-author";
   const usernameKey = "politcheatsheet-username";
   const maximumEmbeddedImages = 2;
   const maximumCompressedImageBytes = 250 * 1024;
   const maximumPdfBytes = 10 * 1024 * 1024;
-  const deviceUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  const state = { categories: [], topics: [], loading: { categories: true, topics: false }, selected: null, editor: Boolean(sessionStorage.getItem(tokenKey)), pending: null, editorForm: null, detail: null, search: { query: "", topics: [], loading: false } };
+  const state = { categories: [], topics: [], loading: { categories: true, topics: false }, selected: null, editor: false, username: "", pending: null, editorForm: null, detail: null, search: { query: "", topics: [], loading: false } };
   const $ = (selector) => document.querySelector(selector);
   const categoryGrid = $("[data-category-grid]");
   const topicGrid = $("[data-topic-grid]");
@@ -99,29 +97,14 @@
     if (!response.ok) throw new Error(body.error || "La demande a échoué.");
     return body;
   }
-  function storedDeviceId() {
-    const value = localStorage.getItem(deviceIdKey);
-    return value && deviceUuidPattern.test(value) ? value.toLowerCase() : null;
-  }
-  async function restoreRememberedSession() {
-    const deviceId = storedDeviceId();
-    if (!deviceId) return false;
+  async function validateCurrentSession() {
     try {
-      const data = await request("/session/remembered", { method: "POST", body: JSON.stringify({ deviceId }) });
-      sessionStorage.setItem(tokenKey, data.token); state.editor = true; renderEditorState();
-      return true;
+      const data = await request("/session/current");
+      state.editor = true; state.username = data.username;
     } catch (error) {
-      if (/Accès mémorisé expiré/.test(error instanceof Error ? error.message : "")) localStorage.removeItem(deviceIdKey);
-      return false;
+      if (/Accès éditeur requis/.test(error instanceof Error ? error.message : "")) disconnect(false);
     }
-  }
-  async function rememberCurrentSession() {
-    if (!state.editor || storedDeviceId()) return;
-    const deviceId = crypto.randomUUID();
-    try {
-      await request("/devices", { method: "POST", body: JSON.stringify({ deviceId }) });
-      localStorage.setItem(deviceIdKey, deviceId);
-    } catch { /* A code entry will try again when the current session ends. */ }
+    renderEditorState();
   }
   function cardMarkup(card, index, type) {
     const id = escapeHtml(card.id);
@@ -176,7 +159,12 @@
     renderCategories();
   }
   function renderEditorState() {
-    $("[data-editor-badge]").hidden = !state.editor;
+    const connected = state.editor && Boolean(state.username);
+    const username = $("[data-connected-user]");
+    username.textContent = state.username;
+    username.hidden = !connected;
+    $("[data-connect-button]").hidden = connected;
+    $("[data-user-menu-wrap]").hidden = !connected;
     renderCurrentView();
   }
   function findCard(type, id) {
@@ -224,7 +212,21 @@
   function requireEditor(action) {
     showNotice(""); state.pending = action;
     if (state.editor) return openEditor(action);
+    openLogin();
+  }
+  function openLogin() {
     const form = $("[data-access-form]"); form.reset(); form.elements.username.value = localStorage.getItem(usernameKey) || ""; accessDialog.showModal();
+  }
+  function setUserMenu(open) {
+    const button = $("[data-action=toggle-menu]");
+    button.setAttribute("aria-expanded", String(open));
+    button.setAttribute("aria-label", open ? "Fermer le menu" : "Ouvrir le menu");
+    $("[data-user-menu]").hidden = !open;
+  }
+  function disconnect(showMessage = true) {
+    sessionStorage.removeItem(tokenKey);
+    state.editor = false; state.username = ""; setUserMenu(false); renderEditorState();
+    if (showMessage) showNotice("Vous êtes déconnecté.");
   }
   function setEditorFeedback(message) { editorFeedback.textContent = message; }
   function descriptionNodeValue(node) {
@@ -333,9 +335,11 @@
     event.preventDefault();
     const form = event.currentTarget; const submit = form.querySelector("button[type=submit]"); submit.disabled = true;
     try {
-      const deviceId = storedDeviceId() || crypto.randomUUID();
-      const data = await request("/session", { method: "POST", body: JSON.stringify({ code: form.elements["access-code"].value, deviceId }) });
-      sessionStorage.setItem(tokenKey, data.token); localStorage.setItem(deviceIdKey, deviceId); localStorage.setItem(usernameKey, form.elements.username.value.trim()); state.editor = true; renderEditorState(); accessDialog.close(); openEditor(state.pending);
+      const username = form.elements.username.value.trim();
+      const data = await request("/session", { method: "POST", body: JSON.stringify({ code: form.elements["access-code"].value, username }) });
+      sessionStorage.setItem(tokenKey, data.token); localStorage.setItem(usernameKey, data.username);
+      state.editor = true; state.username = data.username; renderEditorState(); accessDialog.close();
+      if (state.pending) openEditor(state.pending);
     } catch (error) { showNotice(error.message); }
     finally { submit.disabled = false; }
   }
@@ -359,9 +363,7 @@
       else if (state.selected) await openCategory(state.selected);
     } catch (error) {
       if (/Accès éditeur requis/.test(error.message)) {
-        sessionStorage.removeItem(tokenKey); state.editor = false;
-        if (await restoreRememberedSession()) { editorDialog.close(); openEditor(action); }
-        else { renderEditorState(); editorDialog.close(); requireEditor(action); }
+        disconnect(false); editorDialog.close(); requireEditor(action);
       }
       else showNotice(error.message);
     } finally { submit.disabled = false; }
@@ -379,17 +381,13 @@
       else if (state.selected) await openCategory(state.selected);
     } catch (error) {
       if (/Accès éditeur requis/.test(error.message)) {
-        sessionStorage.removeItem(tokenKey); state.editor = false; renderEditorState();
-        if (await restoreRememberedSession()) showNotice("");
-        else showNotice("Votre accès mémorisé a expiré. Cliquez sur Modifier pour vous reconnecter.");
+        disconnect(false); showNotice("Votre session a expiré. Connectez-vous à nouveau pour continuer.");
       } else showNotice(error.message);
     }
   }
   function setTheme(theme, persist = true) {
     const isDark = theme === "dark";
     document.documentElement.dataset.theme = isDark ? "dark" : "";
-    const toggle = $("[data-action=toggle-theme]");
-    toggle.setAttribute("aria-pressed", String(isDark));
     $("[data-theme-label]").textContent = isDark ? "Mode clair" : "Mode sombre";
     if (persist) localStorage.setItem(themeKey, isDark ? "dark" : "light");
   }
@@ -404,6 +402,9 @@
     const button = element?.closest("[data-action]"); if (!button) return;
     const { action, id } = button.dataset;
     if (action === "toggle-theme") return toggleTheme();
+    if (action === "toggle-menu") return setUserMenu($("[data-user-menu]").hidden);
+    if (action === "open-login") { state.pending = null; return openLogin(); }
+    if (action === "disconnect") return disconnect();
     if (action === "expand-image") return openExpandedImage(button.dataset.imageSource || "");
     if (action === "clear-search") return updateSearch("");
     if (action === "home") return setHome();
@@ -419,6 +420,7 @@
     if (action === "edit-detail") { detailDialog.close(); return requireEditor({ kind: "topic", mode: "edit", card: state.detail, categoryId: state.detail.categoryId }); }
   }
   document.addEventListener("click", actionFromElement);
+  document.addEventListener("click", (event) => { if (!(event.target instanceof Element) || !event.target.closest("[data-user-menu-wrap]")) setUserMenu(false); });
   document.querySelectorAll("[data-close]").forEach((button) => button.addEventListener("click", () => button.closest("dialog").close()));
   $("[data-search-input]").addEventListener("input", (event) => updateSearch(event.currentTarget.value));
   $("[data-access-form]").addEventListener("submit", unlock);
@@ -427,6 +429,5 @@
   descriptionEditor.addEventListener("paste", pasteDescription);
   setTheme(localStorage.getItem(themeKey) === "dark" ? "dark" : "light", false);
   renderEditorState(); loadCategories();
-  if (state.editor) rememberCurrentSession();
-  else restoreRememberedSession();
+  if (sessionStorage.getItem(tokenKey)) validateCurrentSession();
 })();

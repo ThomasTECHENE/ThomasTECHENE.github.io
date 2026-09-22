@@ -16,8 +16,6 @@ const maximumDescriptionLength = 750_000;
 const maximumEmbeddedImages = 2;
 const maximumEmbeddedImageLength = 350_000;
 const maximumPdfBytes = 10 * 1024 * 1024;
-const rememberedDeviceLifetime = 1000 * 60 * 60 * 24 * 30;
-const deviceUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const dataImagePattern = /!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+)\)/g;
 const imageSourcePattern = /!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+|media:\/\/images\/[0-9a-f-]+\.webp)\)/g;
 const mediaKeyPattern = /^(?:images\/[0-9a-f-]+\.webp|documents\/[0-9a-f-]+\.pdf)$/;
@@ -133,37 +131,39 @@ async function hmac(value: string, secret: string) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function deviceId(value: unknown) {
-  return typeof value === "string" && deviceUuidPattern.test(value) ? value.toLowerCase() : null;
+function encodeUsername(username: string) {
+  const bytes = encoder.encode(username);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-async function rememberDevice(env: Env, id: string) {
-  const timestamp = new Date().toISOString();
-  const expiresAt = new Date(Date.now() + rememberedDeviceLifetime).toISOString();
-  const deviceHash = await hmac(id, env.EDITOR_SESSION_SECRET);
-  await env.DB.prepare("INSERT INTO editor_devices (device_hash, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(device_hash) DO UPDATE SET expires_at = excluded.expires_at, updated_at = excluded.updated_at")
-    .bind(deviceHash, expiresAt, timestamp, timestamp).run();
-  return expiresAt;
+function decodeUsername(value: string) {
+  try {
+    const binary = atob(value.replace(/-/g, "+").replace(/_/g, "/"));
+    return new TextDecoder().decode(Uint8Array.from(binary, (character) => character.charCodeAt(0)));
+  } catch { return ""; }
 }
 
-async function isRememberedDevice(env: Env, id: string) {
-  const deviceHash = await hmac(id, env.EDITOR_SESSION_SECRET);
-  const row = await env.DB.prepare("SELECT expires_at FROM editor_devices WHERE device_hash = ?").bind(deviceHash).first<{ expires_at: string }>();
-  return Boolean(row && Date.parse(row.expires_at) > Date.now());
-}
-
-async function sessionToken(env: Env) {
+async function sessionToken(env: Env, username: string) {
   const expiry = Date.now() + 1000 * 60 * 60 * 12;
-  const payload = `${expiry}.${crypto.randomUUID()}`;
+  const payload = `${expiry}.${crypto.randomUUID()}.${encodeUsername(username)}`;
   return `${payload}.${await hmac(payload, env.EDITOR_SESSION_SECRET)}`;
 }
 
-async function isEditor(request: Request, env: Env) {
+async function authenticatedUsername(request: Request, env: Env) {
   const token = request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
-  if (!token) return false;
-  const [expiry, nonce, signature] = token.split(".");
-  if (!expiry || !nonce || !signature || Number(expiry) < Date.now()) return false;
-  return constantTimeEqual(await hmac(`${expiry}.${nonce}`, env.EDITOR_SESSION_SECRET), signature);
+  if (!token) return null;
+  const [expiry, nonce, encodedUsername, signature] = token.split(".");
+  if (!expiry || !nonce || !encodedUsername || !signature || Number(expiry) < Date.now()) return null;
+  const payload = `${expiry}.${nonce}.${encodedUsername}`;
+  if (!constantTimeEqual(await hmac(payload, env.EDITOR_SESSION_SECRET), signature)) return null;
+  const username = decodeUsername(encodedUsername).trim();
+  return username && username.length <= 120 ? username : null;
+}
+
+async function isEditor(request: Request, env: Env) {
+  return Boolean(await authenticatedUsername(request, env));
 }
 
 async function storedCategory(env: Env, id: string) {
@@ -324,29 +324,20 @@ async function content(request: Request, env: Env, path: string) {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request, env) });
+  if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(request, env) });
     const path = new URL(request.url).pathname;
     try {
       if (request.method === "GET" && path.startsWith("/media/")) return await serveMedia(request, env, path);
+      if (request.method === "GET" && path === "/session/current") {
+        const username = await authenticatedUsername(request, env);
+        return username ? json(request, env, { username }) : failure(request, env, "Accès éditeur requis.", 403);
+      }
       if (request.method === "POST" && path === "/session") {
-        const body = await request.json() as { code?: unknown; deviceId?: unknown };
+        const body = await request.json() as { code?: unknown; username?: unknown };
         if (typeof body.code !== "string" || !constantTimeEqual(body.code, env.EDITOR_ACCESS_CODE)) return failure(request, env, "Code incorrect.", 401);
-        const id = deviceId(body.deviceId);
-        if (!id) return failure(request, env, "Identifiant d’appareil invalide.");
-        return json(request, env, { token: await sessionToken(env), rememberUntil: await rememberDevice(env, id) });
-      }
-      if (request.method === "POST" && path === "/session/remembered") {
-        const body = await request.json() as { deviceId?: unknown };
-        const id = deviceId(body.deviceId);
-        if (!id || !(await isRememberedDevice(env, id))) return failure(request, env, "Accès mémorisé expiré.", 401);
-        return json(request, env, { token: await sessionToken(env) });
-      }
-      if (request.method === "POST" && path === "/devices") {
-        if (!(await isEditor(request, env))) return failure(request, env, "Accès éditeur requis.", 403);
-        const body = await request.json() as { deviceId?: unknown };
-        const id = deviceId(body.deviceId);
-        if (!id) return failure(request, env, "Identifiant d’appareil invalide.");
-        return json(request, env, { rememberUntil: await rememberDevice(env, id) });
+        const username = typeof body.username === "string" ? body.username.trim() : "";
+        if (!username || username.length > 120) return failure(request, env, "Un nom d’utilisateur valide est requis.");
+        return json(request, env, { token: await sessionToken(env, username), username });
       }
       if (request.method === "GET" && path === "/health") return json(request, env, { ok: true });
       return await content(request, env, path);
