@@ -51,12 +51,12 @@
             <p class="eyebrow">Explorer</p>
             <h1>Catégories</h1>
           </div>
-          <button class="primary-button desktop-add" type="button" data-action="create-category">＋ Ajouter</button>
+          <button class="primary-button desktop-add" type="button" data-action="create-category" hidden>＋ Ajouter</button>
         </div>
         <div class="card-grid" data-category-grid aria-live="polite"></div>
         <p class="loading-state" data-categories-loading aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span>Chargement des catégories…</p>
         <p class="empty-state" hidden data-empty-categories>Aucune catégorie pour le moment.</p>
-        <button class="primary-button mobile-add" type="button" data-action="create-category">＋ Ajouter une catégorie</button>
+        <button class="primary-button mobile-add" type="button" data-action="create-category" hidden>＋ Ajouter une catégorie</button>
       </section>
 
       <section hidden data-topics-view>
@@ -67,7 +67,7 @@
             <h1 data-topic-title></h1>
             <div class="intro" data-topic-description></div>
           </div>
-          <button class="primary-button" type="button" data-action="create-topic">＋ Ajouter</button>
+          <button class="primary-button" type="button" data-action="create-topic" hidden>＋ Ajouter</button>
         </div>
         <div class="card-grid" data-topic-grid aria-live="polite"></div>
         <p class="loading-state" hidden data-topics-loading aria-live="polite"><span class="loading-spinner" aria-hidden="true"></span>Chargement des sujets…</p>
@@ -115,7 +115,7 @@
         <h2 id="detail-title" data-detail-title></h2>
         <p class="detail-author" hidden data-detail-author></p>
         <div class="detail-copy" data-detail-copy></div>
-        <div class="dialog-actions"><button class="secondary-button" type="button" data-close>Fermer</button><button class="primary-button" type="button" data-action="edit-detail">Modifier</button></div>
+        <div class="dialog-actions"><button class="secondary-button" type="button" data-close>Fermer</button><button class="primary-button" type="button" data-action="edit-detail" hidden>Modifier</button></div>
       </form>
     </dialog>
 

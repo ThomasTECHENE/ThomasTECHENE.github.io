@@ -111,8 +111,10 @@
     const preview = markdownPlainText(card.description);
     const description = type === "topic" && preview ? `<p>${escapeHtml(preview)}</p>` : "";
     const author = type === "topic" && card.author ? `<p class="card-author">Par ${escapeHtml(card.author)}</p>` : "";
+    const editButton = state.editor ? `<button class="text-button" type="button" data-action="edit-${type}" data-id="${id}">Modifier</button>` : "";
     const removeButton = state.editor ? `<button class="text-button delete-button" type="button" data-action="delete-${type}" data-id="${id}">Supprimer</button>` : "";
-    return `<article class="card"><button class="card-main" type="button" data-action="${type === "category" ? "open-category" : "open-topic"}" data-id="${id}"><span class="card-arrow">›</span><h2>${escapeHtml(card.title)}</h2>${description}${author}</button><div class="card-actions">${type === "topic" ? `<button class="text-button" type="button" data-action="open-topic" data-id="${id}">Lire</button>` : ""}<button class="text-button" type="button" data-action="edit-${type}" data-id="${id}">Modifier</button>${removeButton}</div></article>`;
+    const actions = type === "topic" || state.editor ? `<div class="card-actions">${type === "topic" ? `<button class="text-button" type="button" data-action="open-topic" data-id="${id}">Lire</button>` : ""}${editButton}${removeButton}</div>` : "";
+    return `<article class="card"><button class="card-main" type="button" data-action="${type === "category" ? "open-category" : "open-topic"}" data-id="${id}"><span class="card-arrow">›</span><h2>${escapeHtml(card.title)}</h2>${description}${author}</button>${actions}</article>`;
   }
   function syncSearchControl() {
     const input = $("[data-search-input]");
@@ -165,6 +167,8 @@
     username.hidden = !connected;
     $("[data-connect-button]").hidden = connected;
     $("[data-user-menu-wrap]").hidden = !connected;
+    document.querySelectorAll("[data-action=create-category], [data-action=create-topic]").forEach((button) => { button.hidden = !connected; });
+    $("[data-action=edit-detail]").hidden = !connected;
     renderCurrentView();
   }
   function findCard(type, id) {
