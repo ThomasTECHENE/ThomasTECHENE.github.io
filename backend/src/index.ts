@@ -7,8 +7,9 @@ export interface Env {
 }
 
 type Card = { id: string; title: string; description: string; sortOrder: number };
-type Topic = Card & { categoryId: string };
+type Topic = Card & { categoryId: string; author: string };
 type Input = { title: string; description: string };
+type TopicInput = Input & { author: string };
 
 const encoder = new TextEncoder();
 const maximumDescriptionLength = 750_000;
@@ -26,9 +27,9 @@ const defaultCategories: Card[] = [
   { id: "technologie", title: "Technologie", description: "Des outils qui changent la façon dont nous vivons et travaillons.", sortOrder: 3 },
 ];
 const defaultTopics: Topic[] = [
-  { id: "inflation", categoryId: "economie", title: "L’inflation, simplement", description: "Pourquoi les prix montent, comment elle est mesurée, et ce qu’elle change au quotidien.", sortOrder: 1 },
-  { id: "offre-demande", categoryId: "economie", title: "L’offre et la demande", description: "Le principe qui aide à lire les prix, les pénuries et les comportements de marché.", sortOrder: 2 },
-  { id: "budget-public", categoryId: "economie", title: "Le budget public", description: "Comment l’État collecte, répartit et utilise l’argent public.", sortOrder: 3 },
+  { id: "inflation", categoryId: "economie", title: "L’inflation, simplement", description: "Pourquoi les prix montent, comment elle est mesurée, et ce qu’elle change au quotidien.", author: "", sortOrder: 1 },
+  { id: "offre-demande", categoryId: "economie", title: "L’offre et la demande", description: "Le principe qui aide à lire les prix, les pénuries et les comportements de marché.", author: "", sortOrder: 2 },
+  { id: "budget-public", categoryId: "economie", title: "Le budget public", description: "Comment l’État collecte, répartit et utilise l’argent public.", author: "", sortOrder: 3 },
 ];
 
 function cors(request: Request, env: Env): Record<string, string> {
@@ -63,6 +64,13 @@ function validateInput(value: unknown): Input {
     throw new Error("Une description peut contenir au plus deux images WebP compressées.");
   }
   return { title, description };
+}
+
+function validateTopicInput(value: unknown): TopicInput {
+  const input = validateInput(value);
+  const author = typeof (value as Record<string, unknown>).author === "string" ? (value as Record<string, string>).author.trim() : "";
+  if (author.length > 120) throw new Error("Le nom de l’auteur est trop long.");
+  return { ...input, author };
 }
 
 function card(row: Record<string, unknown>): Card {
@@ -105,7 +113,7 @@ async function migrateStoredDescription(env: Env, table: "categories" | "topics"
   return { ...row, description: migrated };
 }
 
-function topic(row: Record<string, unknown>): Topic { return { ...card(row), categoryId: String(row.category_id) }; }
+function topic(row: Record<string, unknown>): Topic { return { ...card(row), categoryId: String(row.category_id), author: String(row.author || "") }; }
 
 function merge<T extends { id: string; sortOrder: number }>(defaults: T[], stored: T[], deleted = new Set<string>()) {
   const values = new Map(defaults.filter((item) => !deleted.has(item.id)).map((item) => [item.id, item]));
@@ -200,14 +208,14 @@ async function listCategories(env: Env) {
 
 async function listTopics(env: Env, categoryId: string) {
   if (await isDeleted(env, "category", categoryId)) return [];
-  const result = await env.DB.prepare("SELECT id, category_id, title, description, sort_order FROM topics WHERE category_id = ? ORDER BY sort_order ASC").bind(categoryId).all<Record<string, unknown>>();
+  const result = await env.DB.prepare("SELECT id, category_id, title, description, author, sort_order FROM topics WHERE category_id = ? ORDER BY sort_order ASC").bind(categoryId).all<Record<string, unknown>>();
   const stored = await Promise.all(result.results.map(async (row) => topic(await migrateStoredDescription(env, "topics", row))));
   return merge(defaultTopics.filter((item) => item.categoryId === categoryId), stored, await deletedIds(env, "topic"));
 }
 
 async function listAllTopics(env: Env) {
   const [result, deletedTopics, deletedCategories] = await Promise.all([
-    env.DB.prepare("SELECT id, category_id, title, description, sort_order FROM topics ORDER BY sort_order ASC").all<Record<string, unknown>>(),
+    env.DB.prepare("SELECT id, category_id, title, description, author, sort_order FROM topics ORDER BY sort_order ASC").all<Record<string, unknown>>(),
     deletedIds(env, "topic"),
     deletedIds(env, "category"),
   ]);
@@ -216,13 +224,13 @@ async function listAllTopics(env: Env) {
   return merge(defaults, stored, deletedTopics);
 }
 
-async function writeTopic(env: Env, categoryId: string, input: Input, id: string = crypto.randomUUID()) {
+async function writeTopic(env: Env, categoryId: string, input: TopicInput, id: string = crypto.randomUUID()) {
   await ensureCategory(env, categoryId);
   const timestamp = new Date().toISOString();
   const fallback = defaultTopics.find((item) => item.id === id);
-  await env.DB.prepare("INSERT INTO topics (id, category_id, title, description, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET category_id = excluded.category_id, title = excluded.title, description = excluded.description, sort_order = excluded.sort_order, updated_at = excluded.updated_at")
-    .bind(id, categoryId, input.title, input.description, fallback?.sortOrder ?? Date.now(), timestamp, timestamp).run();
-  const row = await env.DB.prepare("SELECT id, category_id, title, description, sort_order FROM topics WHERE id = ?").bind(id).first<Record<string, unknown>>();
+  await env.DB.prepare("INSERT INTO topics (id, category_id, title, description, author, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET category_id = excluded.category_id, title = excluded.title, description = excluded.description, author = excluded.author, sort_order = excluded.sort_order, updated_at = excluded.updated_at")
+    .bind(id, categoryId, input.title, input.description, input.author, fallback?.sortOrder ?? Date.now(), timestamp, timestamp).run();
+  const row = await env.DB.prepare("SELECT id, category_id, title, description, author, sort_order FROM topics WHERE id = ?").bind(id).first<Record<string, unknown>>();
   if (!row) throw new Error("Le sujet n’a pas pu être enregistré.");
   return topic(row);
 }
@@ -308,8 +316,9 @@ async function content(request: Request, env: Env, path: string) {
   if (request.method === "PUT" && path.startsWith("/categories/")) return json(request, env, { category: await writeCategory(env, input, decodeURIComponent(path.slice(12))) });
   const categoryId = typeof (body as Record<string, unknown>).categoryId === "string" ? (body as Record<string, string>).categoryId : "";
   if (!categoryId) return failure(request, env, "Catégorie requise.");
-  if (request.method === "POST" && path === "/topics") return json(request, env, { topic: await writeTopic(env, categoryId, input) }, 201);
-  if (request.method === "PUT" && path.startsWith("/topics/")) return json(request, env, { topic: await writeTopic(env, categoryId, input, decodeURIComponent(path.slice(8))) });
+  const topicInput = validateTopicInput(body);
+  if (request.method === "POST" && path === "/topics") return json(request, env, { topic: await writeTopic(env, categoryId, topicInput) }, 201);
+  if (request.method === "PUT" && path.startsWith("/topics/")) return json(request, env, { topic: await writeTopic(env, categoryId, topicInput, decodeURIComponent(path.slice(8))) });
   return failure(request, env, "Route introuvable.", 404);
 }
 

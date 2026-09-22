@@ -36,6 +36,7 @@ button { cursor:pointer; }
 .card-arrow { position:absolute; top:1.35rem; right:1.35rem; display:grid; place-items:center; width:2.25rem; height:2.25rem; border-radius:50%; color:var(--purple); background:var(--arrow-bg); font-size:1.35rem; }
 .card h2 { max-width:16rem; margin:0; color:var(--heading); font-size:1.48rem; letter-spacing:-.04em; line-height:1.12; }
 .card p { display:-webkit-box; overflow:hidden; margin:.7rem 0 0; color:var(--muted); line-height:1.55; -webkit-box-orient:vertical; -webkit-line-clamp:3; }
+.card .card-author { display:block; margin-top:.9rem; color:var(--accent); font-size:.84rem; font-weight:800; line-height:1.3; }
 .card-actions { display:flex; justify-content:flex-end; gap:.25rem; border-top:1px solid var(--card-action-line); padding:.65rem .85rem; }
 .text-button, .back-link { border:0; border-radius:.5rem; padding:.4rem .55rem; color:var(--accent); background:transparent; font-size:.875rem; font-weight:700; }
 .text-button:hover, .back-link:hover { color:var(--heading); background:var(--subtle); }
@@ -58,6 +59,7 @@ button { cursor:pointer; }
 .modal form { position:relative; display:grid; gap:.7rem; padding:1.75rem; }
 .modal h2 { margin:.2rem 2rem .1rem 0; color:var(--heading); font-size:1.7rem; letter-spacing:-.04em; }
 .modal p { margin:0 0:.7rem; color:var(--muted); line-height:1.55; }
+.modal .detail-author { margin:0 0:.7rem; color:var(--accent); font-size:.9rem; font-weight:800; }
 .modal label { margin-top:.35rem; color:var(--label); font-size:.9rem; font-weight:800; }
 .modal input, .modal textarea { width:100%; border:1px solid var(--input-border); border-radius:.75rem; padding:.75rem; color:var(--ink); background:var(--input-bg); }
 .description-editor { min-height:9rem; overflow:auto; border:1px solid var(--input-border); border-radius:.75rem; padding:.75rem; color:var(--ink); background:var(--input-bg); line-height:1.55; white-space:pre-wrap; }

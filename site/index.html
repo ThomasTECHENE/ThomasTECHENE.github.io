@@ -6,7 +6,7 @@
     <meta name="description" content="Des repères clairs, rangés par catégorie." />
     <title>PolitCheatSheet</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg" />
-    <link rel="stylesheet" href="styles.css?v=r2-assets-20260921" />
+    <link rel="stylesheet" href="styles.css?v=authors-20260922" />
   </head>
   <body>
     <header class="topbar">
@@ -73,7 +73,9 @@
         <button class="modal-close" type="button" data-close aria-label="Fermer">×</button>
         <span class="lock" aria-hidden="true">⌁</span>
         <h2 id="access-title">Accès édition</h2>
-        <p>Saisissez le code pour ajouter ou modifier une carte. Ce navigateur sera mémorisé pendant 30 jours.</p>
+        <p>Saisissez votre nom d’utilisateur et le code pour ajouter ou modifier une carte. Ce navigateur sera mémorisé pendant 30 jours.</p>
+        <label for="editor-username">Nom d’utilisateur</label>
+        <input id="editor-username" name="username" maxlength="120" autocomplete="username" required />
         <label for="access-code">Code d’accès</label>
         <input id="access-code" name="access-code" type="password" autocomplete="current-password" required />
         <button class="primary-button" type="submit">Continuer</button>
@@ -87,6 +89,10 @@
         <p>Un titre clair et quelques lignes suffisent.</p>
         <label for="card-title">Titre</label>
         <input id="card-title" name="title" maxlength="120" required />
+        <div data-author-field hidden>
+          <label for="card-author">Auteur <span aria-hidden="true">(facultatif)</span></label>
+          <input id="card-author" name="author" maxlength="120" autocomplete="name" />
+        </div>
         <label for="card-description">Description</label>
         <div id="card-description" class="description-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-describedby="description-help" data-description-editor></div>
         <p id="description-help" class="editor-help">Markdown accepté : <strong>**gras**</strong>, <em>*italique*</em>, <code>`code`</code>, [lien](https://…), titres (#), listes (-) et citations (&gt;). Collez une image : elle est compressée automatiquement. Cliquez une image pour l’agrandir.</p>
@@ -100,6 +106,7 @@
       <form method="dialog">
         <button class="modal-close" type="button" data-close aria-label="Fermer">×</button>
         <h2 id="detail-title" data-detail-title></h2>
+        <p class="detail-author" hidden data-detail-author></p>
         <div class="detail-copy" data-detail-copy></div>
         <div class="dialog-actions"><button class="secondary-button" type="button" data-close>Fermer</button><button class="primary-button" type="button" data-action="edit-detail">Modifier</button></div>
       </form>
@@ -111,6 +118,6 @@
     </dialog>
 
     <script src="config.js"></script>
-    <script src="app.js?v=r2-assets-20260921"></script>
+    <script src="app.js?v=authors-20260922"></script>
   </body>
 </html>

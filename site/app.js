@@ -3,6 +3,8 @@
   const tokenKey = "carnet-editor-token";
   const deviceIdKey = "carnet-editor-device-id";
   const themeKey = "policheatsheat-theme";
+  const authorKey = "politcheatsheet-author";
+  const usernameKey = "politcheatsheet-username";
   const maximumEmbeddedImages = 2;
   const maximumCompressedImageBytes = 250 * 1024;
   const maximumPdfBytes = 10 * 1024 * 1024;
@@ -85,7 +87,7 @@
   function normalizeSearch(value) { return String(value).normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase(); }
   function matchesSearch(card, query) {
     const words = normalizeSearch(query).trim().split(/\s+/).filter(Boolean);
-    const cardText = normalizeSearch(`${card.title} ${markdownPlainText(card.description)}`);
+    const cardText = normalizeSearch(`${card.title} ${card.author || ""} ${markdownPlainText(card.description)}`);
     return words.length === 0 || words.some((word) => cardText.includes(word));
   }
   function showNotice(message) { notice.textContent = message; notice.hidden = !message; }
@@ -125,8 +127,9 @@
     const id = escapeHtml(card.id);
     const preview = markdownPlainText(card.description);
     const description = type === "topic" && preview ? `<p>${escapeHtml(preview)}</p>` : "";
+    const author = type === "topic" && card.author ? `<p class="card-author">Par ${escapeHtml(card.author)}</p>` : "";
     const removeButton = state.editor ? `<button class="text-button delete-button" type="button" data-action="delete-${type}" data-id="${id}">Supprimer</button>` : "";
-    return `<article class="card"><button class="card-main" type="button" data-action="${type === "category" ? "open-category" : "open-topic"}" data-id="${id}"><span class="card-arrow">›</span><h2>${escapeHtml(card.title)}</h2>${description}</button><div class="card-actions">${type === "topic" ? `<button class="text-button" type="button" data-action="open-topic" data-id="${id}">Lire</button>` : ""}<button class="text-button" type="button" data-action="edit-${type}" data-id="${id}">Modifier</button>${removeButton}</div></article>`;
+    return `<article class="card"><button class="card-main" type="button" data-action="${type === "category" ? "open-category" : "open-topic"}" data-id="${id}"><span class="card-arrow">›</span><h2>${escapeHtml(card.title)}</h2>${description}${author}</button><div class="card-actions">${type === "topic" ? `<button class="text-button" type="button" data-action="open-topic" data-id="${id}">Lire</button>` : ""}<button class="text-button" type="button" data-action="edit-${type}" data-id="${id}">Modifier</button>${removeButton}</div></article>`;
   }
   function syncSearchControl() {
     const input = $("[data-search-input]");
@@ -221,7 +224,7 @@
   function requireEditor(action) {
     showNotice(""); state.pending = action;
     if (state.editor) return openEditor(action);
-    $("[data-access-form]").reset(); accessDialog.showModal();
+    const form = $("[data-access-form]"); form.reset(); form.elements.username.value = localStorage.getItem(usernameKey) || ""; accessDialog.showModal();
   }
   function setEditorFeedback(message) { editorFeedback.textContent = message; }
   function descriptionNodeValue(node) {
@@ -315,12 +318,16 @@
     const form = $("[data-editor-form]");
     $("[data-editor-title]").textContent = action.mode === "edit" ? "Modifier la carte" : "Nouvelle carte";
     form.title.value = action.card?.title || "";
+    const authorField = $("[data-author-field]"); authorField.hidden = action.kind !== "topic";
+    form.author.value = action.kind === "topic" ? (action.card?.author || (action.mode === "create" ? localStorage.getItem(authorKey) || "" : "")) : "";
     descriptionEditor.innerHTML = renderEditorDescription(action.card?.description || "");
     setEditorFeedback("");
     editorDialog.showModal();
   }
   function openTopic(topic) {
-    state.detail = topic; $("[data-detail-title]").textContent = topic.title; $("[data-detail-copy]").innerHTML = renderMarkdown(topic.description); detailDialog.showModal();
+    state.detail = topic; $("[data-detail-title]").textContent = topic.title;
+    const author = $("[data-detail-author]"); author.hidden = !topic.author; author.textContent = topic.author ? `Par ${topic.author}` : "";
+    $("[data-detail-copy]").innerHTML = renderMarkdown(topic.description); detailDialog.showModal();
   }
   async function unlock(event) {
     event.preventDefault();
@@ -328,7 +335,7 @@
     try {
       const deviceId = storedDeviceId() || crypto.randomUUID();
       const data = await request("/session", { method: "POST", body: JSON.stringify({ code: form.elements["access-code"].value, deviceId }) });
-      sessionStorage.setItem(tokenKey, data.token); localStorage.setItem(deviceIdKey, deviceId); state.editor = true; renderEditorState(); accessDialog.close(); openEditor(state.pending);
+      sessionStorage.setItem(tokenKey, data.token); localStorage.setItem(deviceIdKey, deviceId); localStorage.setItem(usernameKey, form.elements.username.value.trim()); state.editor = true; renderEditorState(); accessDialog.close(); openEditor(state.pending);
     } catch (error) { showNotice(error.message); }
     finally { submit.disabled = false; }
   }
@@ -342,8 +349,10 @@
     const url = action.mode === "edit" ? `${base}/${encodeURIComponent(action.card.id)}` : base;
     try {
       description = await uploadPastedImages(description);
-      const payload = { title: form.title.value, description, ...(action.kind === "topic" ? { categoryId: action.categoryId } : {}) };
+      const author = form.author.value.trim();
+      const payload = { title: form.title.value, description, ...(action.kind === "topic" ? { categoryId: action.categoryId, author } : {}) };
       await request(url, { method: action.mode === "edit" ? "PUT" : "POST", body: JSON.stringify(payload) });
+      if (action.kind === "topic" && author) localStorage.setItem(authorKey, author);
       editorDialog.close();
       if (action.kind === "category") { await loadCategories(); if (state.selected) await openCategory(state.categories.find((item) => item.id === state.selected.id) || state.selected); }
       else if (state.search.query.trim()) await updateSearch(state.search.query);
