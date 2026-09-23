@@ -424,7 +424,11 @@
   function setTheme(theme, persist = true) {
     const isDark = theme === "dark";
     document.documentElement.dataset.theme = isDark ? "dark" : "";
-    $("[data-theme-label]").textContent = isDark ? "Mode clair" : "Mode sombre";
+    const themeToggle = $("[data-action=toggle-theme]");
+    const nextThemeLabel = isDark ? "Activer le mode clair" : "Activer le mode sombre";
+    themeToggle.setAttribute("aria-label", nextThemeLabel);
+    themeToggle.title = isDark ? "Mode clair" : "Mode sombre";
+    $("[data-theme-icon]").textContent = isDark ? "☀" : "☾";
     if (persist) localStorage.setItem(themeKey, isDark ? "dark" : "light");
   }
   function toggleTheme() { setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); }
