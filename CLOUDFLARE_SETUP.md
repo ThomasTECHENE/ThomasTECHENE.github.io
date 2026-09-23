@@ -12,4 +12,4 @@ The public site is published by GitHub Pages. Cloudflare runs only the private A
 4. Copy the Worker URL, such as `https://policheatsheat-api.<account>.workers.dev`, into `site/config.js` as `window.CARNET_API_BASE`.
 5. Apply `backend/migrations/0001_initial.sql` to the D1 database before the first public use.
 
-The Worker only allows browser requests from `https://thomastechene.github.io`. It provides public read routes and password-protected write routes.
+The Worker only allows browser requests from `https://politcheatsheet.github.io`. It provides public read routes and password-protected write routes.

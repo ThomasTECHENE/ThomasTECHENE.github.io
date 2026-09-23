@@ -34,7 +34,7 @@ const defaultTopics: Topic[] = [
 
 function cors(request: Request, env: Env): Record<string, string> {
   const origin = request.headers.get("Origin");
-  const allowed = env.ALLOWED_ORIGIN || "https://thomastechene.github.io";
+  const allowed = env.ALLOWED_ORIGIN || "https://politcheatsheet.github.io";
   if (origin !== allowed) return { "Vary": "Origin" };
   return {
     "Access-Control-Allow-Origin": allowed,
