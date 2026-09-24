@@ -3,7 +3,7 @@ export interface Env {
   ASSETS: R2Bucket;
   EDITOR_ACCESS_CODE: string;
   EDITOR_SESSION_SECRET: string;
-  ALLOWED_ORIGIN?: string;
+  ALLOWED_ORIGINS?: string;
 }
 
 type Card = { id: string; title: string; description: string; sortOrder: number };
@@ -34,10 +34,10 @@ const defaultTopics: Topic[] = [
 
 function cors(request: Request, env: Env): Record<string, string> {
   const origin = request.headers.get("Origin");
-  const allowed = env.ALLOWED_ORIGIN || "https://politcheatsheet.github.io";
-  if (origin !== allowed) return { "Vary": "Origin" };
+  const allowedOrigins = (env.ALLOWED_ORIGINS || "https://politcheatsheet.github.io").split(",").map((value) => value.trim()).filter(Boolean);
+  if (!origin || !allowedOrigins.includes(origin)) return { "Vary": "Origin" };
   return {
-    "Access-Control-Allow-Origin": allowed,
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Access-Control-Allow-Headers": "Authorization, Content-Type, X-Filename",
     "Vary": "Origin",

@@ -18,6 +18,6 @@
     }
   ],
   "vars": {
-    "ALLOWED_ORIGIN": "https://politcheatsheet.github.io"
+    "ALLOWED_ORIGINS": "https://politcheatsheet.github.io,https://politcheatsheet.mytho123.ovh"
   }
 }
