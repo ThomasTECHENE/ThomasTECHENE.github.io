@@ -40,6 +40,11 @@
     output = output.replace(/!\[image\]\((data:image\/webp;base64,[A-Za-z0-9+/=]+|media:\/\/images\/[0-9a-f-]+\.webp)\)/gi, (_, source) => protect(embeddedImageMarkup(source)));
     output = output.replace(/`([^`\n]+)`/g, (_, code) => protect(`<code>${code}</code>`));
     output = output.replace(/\[([^\]\n]+)\]\((https?:\/\/[^\s<>()]+|media:\/\/documents\/[0-9a-f-]+\.pdf)\)/gi, (_, label, url) => protect(`<a href="${escapeHtml(isStoredDocument(url) ? mediaUrl(url) : url)}" target="_blank" rel="noopener noreferrer">${label}</a>`));
+    output = output.replace(/https?:\/\/[^\s<]+/gi, (candidate) => {
+      const url = candidate.replace(/[.,!?;:]+$/, "");
+      const trailing = candidate.slice(url.length);
+      return url ? `${protect(`<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`)}${trailing}` : candidate;
+    });
     output = output.replace(/~~(?=\S)([\s\S]*?\S)~~/g, "<del>$1</del>");
     output = output.replace(/(\*\*|__)(?=\S)([\s\S]*?\S)\1/g, "<strong>$2</strong>");
     output = output.replace(/\*([^*\n]+)\*|_([^_\n]+)_/g, (_, italic, underscore) => `<em>${italic || underscore}</em>`);

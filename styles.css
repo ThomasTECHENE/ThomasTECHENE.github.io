@@ -90,7 +90,7 @@ button { cursor:pointer; }
 .detail-copy ul, .detail-copy ol, .intro ul, .intro ol { padding-left:1.35rem; }
 .detail-copy blockquote, .intro blockquote { margin:1rem 0; border-left:3px solid var(--accent); padding-left:1rem; color:var(--muted); }
 .detail-copy code, .intro code { border-radius:.3rem; padding:.1rem .3rem; background:var(--subtle); font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.9em; }
-.detail-copy a, .intro a { color:var(--accent); font-weight:700; }
+.detail-copy a, .intro a { color:var(--accent); font-weight:700; text-decoration:underline; text-underline-offset:.15em; }
 .detail-copy hr, .intro hr { border:0; border-top:1px solid var(--line); margin:1.25rem 0; }
 .image-modal { position:relative; width:auto; max-width:min(100% - 2rem, 72rem); max-height:calc(100vh - 2rem); overflow:hidden; border:1px solid var(--card-border); border-radius:1rem; padding:0; background:var(--surface); box-shadow:0 22px 70px rgb(0 0 0 / .55); }
 .image-modal::backdrop { background:rgb(0 0 0 / .72); }
